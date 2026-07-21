@@ -1,0 +1,129 @@
+{
+  "theme": "dark",
+  "archetype": "The Performance Pro (Elite Athleticism & Precision)",
+  "typography": {
+    "headings": {
+      "family": "Barlow Condensed",
+      "import_url": "https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;800;900&display=swap",
+      "usage": "Headers, Stats Numbers, HUD data",
+      "sizes": {
+        "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tight",
+        "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight",
+        "h3": "text-xl sm:text-2xl",
+        "overline": "uppercase text-xs tracking-[0.2em] font-semibold"
+      }
+    },
+    "body_and_letters": {
+      "family": "JetBrains Mono",
+      "import_url": "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&display=swap",
+      "usage": "The giant letter pair, algorithms, technical data, Speffz scheme",
+      "sizes": {
+        "letter_pair": "text-[15vw] leading-none font-extrabold tracking-tighter",
+        "body": "text-base",
+        "small": "text-sm"
+      }
+    }
+  },
+  "colors": {
+    "background": {
+      "base": "#0A0A0A",
+      "surface": "#141414",
+      "surface_elevated": "#1E1E1E"
+    },
+    "text": {
+      "primary": "#FFFFFF",
+      "secondary": "#A1A1AA",
+      "muted": "#52525B"
+    },
+    "accent": {
+      "success": "#39FF14",
+      "error": "#FF3B30",
+      "active": "#007AFF"
+    },
+    "rubiks_cube": {
+      "white": "#FFFFFF",
+      "yellow": "#FFD500",
+      "green": "#009E60",
+      "blue": "#0051BA",
+      "red": "#C41E3A",
+      "orange": "#FF5800",
+      "outline": "#000000"
+    }
+  },
+  "visual_enhancers": {
+    "shadows": "Minimal. Use 1px solid borders (#333333) instead of soft shadows. Inner glow 1px for active states.",
+    "borders": "border-white/10 for neutral, border-success/50 for correct feedback.",
+    "textures": "Subtle noise overlay (opacity 0.02) to break the digital flatness.",
+    "surfaces": "Solid colors only. No glassmorphism here because of the 'tactical performance' requirement. Transparency allowed only for modal overlays (backdrop-blur-sm bg-black/80)."
+  },
+  "components": {
+    "letter_pair_display": {
+      "description": "Big central 'letter pair' display",
+      "styling": "Massive JetBrains Mono text, absolutely centered via Flexbox. Color transitions instantly based on correctness: Default (White), Correct (Neon Green flash), Incorrect (Electric Red flash + Shake).",
+      "testid": "letter-pair-display"
+    },
+    "connection_panel": {
+      "description": "Bluetooth smart cube connection status",
+      "styling": "Top left. Pill-shaped badge. Dot indicator: Green (Connected), Red (Disconnected), Yellow (Connecting). Font: JetBrains Mono text-sm.",
+      "testid": "bluetooth-status-badge"
+    },
+    "mode_switcher": {
+      "description": "Corners vs Edges 3-style toggle",
+      "styling": "Segmented control in the top center. Minimalist borders. Active state gets a 1px inner border of #007AFF and elevated background.",
+      "testid": "mode-switcher"
+    },
+    "live_session_hud": {
+      "description": "Current streak, cases solved, accuracy %, CPM",
+      "styling": "Bottom or side grid. High density. 'Grid Borders' style: expose the skeleton with border-r border-t border-white/10. Labels: Barlow Condensed overline. Values: JetBrains Mono.",
+      "testid": "live-session-hud"
+    },
+    "cube_visualization": {
+      "description": "Small 2D/3D sticker map",
+      "styling": "Flat 2D unrolled net view. True Rubik's colors with 1px black or dark grey gaps between stickers. The buffer and two target stickers highlighted, others dimmed (opacity 0.3 or grayscale).",
+      "testid": "cube-sticker-map"
+    },
+    "settings_drawer": {
+      "description": "Configuration (buffer piece, sound, scheme)",
+      "styling": "Slide out from right. Solid #141414 background. border-l border-white/10. Standard Shadcn customized forms (Switch, Select).",
+      "testid": "settings-drawer"
+    },
+    "stats_view": {
+      "description": "Total cases trained, time spent, best day, per-case timing",
+      "styling": "A dense grid utilizing the 'High Density Grid' (gap-4 or gap-6). Text in Barlow Condensed for large metrics. Recharts with minimal axes for graphs.",
+      "testid": "stats-view-container"
+    }
+  },
+  "grids_and_layouts": {
+    "spacing_system": "Generous spacing overall, but tight grouping for related stats. p-4 to p-8 for containers. HUD uses tight gap-4 high-density grid.",
+    "hero_layout": "Full viewport height layout (h-screen). Top bar for controls, Center for the Letter Pair (flex-grow), Bottom/Sides for HUD. Avoid scrolling on the main training screen."
+  },
+  "motion": {
+    "correct_action": "Instant text color change to #39FF14, scale up by 1.05 for 100ms, then swap to new letters and scale back. Speed is critical.",
+    "incorrect_action": "Text color to #FF3B30, horizontal shake animation (translateX -10px, 10px).",
+    "general": "Micro-interactions on hover (bg-white/5), no slow transitions. Keep transition times under 150ms for a snappy feel."
+  },
+  "accessibility": {
+    "contrast": "Ensure pure white text on deep black meets APCA standards. Rubik's colors on dark background MUST have a dark stroke (#000) around them to avoid bleeding or contrast issues.",
+    "keyboard": "Full keyboard navigation support, critical for manual practice fallback. Use specific keystrokes (e.g., Space to reveal/skip, Enter to submit)."
+  },
+  "instructions_to_main_agent": [
+    "Install custom fonts: Barlow Condensed and JetBrains Mono.",
+    "Implement the main training view as a non-scrolling, viewport-filling app (h-screen).",
+    "Use standard HTML+Tailwind for the main layout to ensure absolute control over the massive letter display and grid alignments.",
+    "Use Shadcn UI for the Settings Drawer, Dialogs, and Selects.",
+    "Ensure the central letter pair dominates the screen and uses fluid typography (e.g., clamp(5rem, 15vw, 20rem)).",
+    "Implement Web Bluetooth logic cleanly, separating UI state from Bluetooth events.",
+    "Add data-testid attributes to ALL interactive and informational elements.",
+    "Strictly follow the color palette, especially the exact Rubik's cube colors provided."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Do NOT center align the app container. Keep text-alignment semantic.",
+    "Do NOT use complete transparent backgrounds for overlays or dropdowns. Always use bg-surface (#141414) or dark glass (bg-black/80 backdrop-blur-md).",
+    "Never apply transition: all.",
+    "Add micro-animations for hover states and transitions.",
+    "Use sonner for toast notifications."
+  ],
+  "data_testids": {
+    "rules": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case, role-based."
+  }
+}
