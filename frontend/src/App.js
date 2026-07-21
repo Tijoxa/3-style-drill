@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
   Bluetooth, BluetoothConnected, Settings as SettingsIcon, BarChart3,
-  X, RotateCcw, Zap, SkipForward, Keyboard, BatteryMedium,
+  X, RotateCcw, SkipForward, Keyboard, BatteryMedium,
 } from "lucide-react";
 import {
   SOLVED, applyMove, apply3Cycle, letterPieceId,
@@ -53,6 +53,7 @@ export default function App() {
   const sessionStartRef = useRef(Date.now());
 
   const cubeStateRef = useRef(SOLVED);
+  const streakRef = useRef(0);
   const targetRef = useRef(null);
   const caseStartRef = useRef(Date.now());
   const modeRef = useRef(mode);
@@ -91,22 +92,21 @@ export default function App() {
     const elapsed = Date.now() - caseStartRef.current;
     if (settingsRef.current.sound) beep(880, true);
     setFlash("ok");
-    setSession((prev) => {
-      const streak = prev.streak + 1;
-      return {
-        solved: prev.solved + 1,
-        streak,
-        bestStreak: Math.max(prev.bestStreak, streak),
-        times: [...prev.times, elapsed].slice(-500),
-      };
-    });
+    const newStreak = streakRef.current + 1;
+    streakRef.current = newStreak;
+    setSession((prev) => ({
+      solved: prev.solved + 1,
+      streak: newStreak,
+      bestStreak: Math.max(prev.bestStreak, newStreak),
+      times: [...prev.times, elapsed].slice(-500),
+    }));
     setLifetime((prev) => {
       const d = today();
       const perDay = { ...prev.perDay, [d]: (prev.perDay[d] || 0) + 1 };
       const next = {
         totalCases: prev.totalCases + 1,
         totalTimeMs: prev.totalTimeMs + elapsed,
-        bestStreak: Math.max(prev.bestStreak, (session.streak + 1)),
+        bestStreak: Math.max(prev.bestStreak, newStreak),
         perDay,
       };
       localStorage.setItem(STATS_KEY, JSON.stringify(next));
@@ -114,7 +114,7 @@ export default function App() {
     });
     setTimeout(() => setFlash(null), 180);
     setTimeout(() => { buildCase(); busyRef.current = false; }, 60);
-  }, [buildCase, session.streak]);
+  }, [buildCase]);
 
   const onStateChanged = useCallback((newState) => {
     cubeStateRef.current = newState;
@@ -136,6 +136,7 @@ export default function App() {
   const skipCase = useCallback(() => {
     if (settingsRef.current.sound) beep(200, false);
     setFlash("err");
+    streakRef.current = 0;
     setSession((p) => ({ ...p, streak: 0 }));
     setTimeout(() => setFlash(null), 280);
     buildCase();
@@ -169,13 +170,15 @@ export default function App() {
 
   const handleConnect = useCallback(async () => {
     if (btStatus === "connected") { await btDisconnect(); setBtStatus("disconnected"); setCubeName(""); setBattery(null); return; }
-    if (!isBluetoothSupported()) { toast.error("Web Bluetooth not supported. Use Chrome/Edge on desktop or Android."); return; }
+    if (!isBluetoothSupported()) { toast.error("Web Bluetooth not supported. Use Chrome or Edge on desktop or Android (not iOS)."); return; }
     setBtStatus("connecting");
+    setCubeName("Connecting…");
     try {
       const info = await btConnect({
         onMove: (m) => onStateChanged(applyMove(cubeStateRef.current, m)),
         onFacelets: (f) => { if (f && f.length === 54) onStateChanged(f); },
         onBattery: (b) => setBattery(b),
+        onStatus: (s) => setCubeName(s),
         onDisconnect: () => { setBtStatus("disconnected"); setCubeName(""); setBattery(null); toast("Cube disconnected"); },
       });
       setCubeName(info.name);
@@ -183,7 +186,11 @@ export default function App() {
       toast.success(`Connected: ${info.name}`);
     } catch (e) {
       setBtStatus("disconnected");
-      toast.error("Connection cancelled or failed");
+      setCubeName("");
+      const msg = (e && e.message) ? e.message : String(e);
+      if (/cancel|User cancelled|chooser/i.test(msg)) toast("Connection cancelled");
+      else toast.error(`Connection failed: ${msg}`);
+      console.error("Cube connection error:", e);
     }
   }, [btStatus, onStateChanged]);
 
@@ -191,6 +198,7 @@ export default function App() {
     const empty = { totalCases: 0, totalTimeMs: 0, bestStreak: 0, perDay: {} };
     localStorage.setItem(STATS_KEY, JSON.stringify(empty));
     setLifetime(empty);
+    streakRef.current = 0;
     setSession({ solved: 0, streak: 0, bestStreak: 0, times: [] });
     sessionStartRef.current = Date.now();
     toast.success("Stats reset");
@@ -222,7 +230,7 @@ export default function App() {
             <span data-testid="bluetooth-status-text">{btStatus === "connected" ? (cubeName || "Connected") : btStatus === "connecting" ? "Connecting…" : "Connect Cube"}</span>
           </button>
           {battery != null && (
-            <span className="font-mono" data-testid="battery-level" style={{ display: "flex", alignItems: "center", gap: 4, color: "var(--text-secondary,#A1A1AA)", fontSize: 13, color: "#A1A1AA" }}>
+            <span className="font-mono" data-testid="battery-level" style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 13, color: "#A1A1AA" }}>
               <BatteryMedium size={15} /> {battery}%
             </span>
           )}
