@@ -1,6 +1,7 @@
 // Thin wrapper around smartcube-web-bluetooth (Web Bluetooth). Client-side only.
-// NOTE: statically imported so requestDevice() runs inside the click gesture.
-import { connectSmartCube } from "smartcube-web-bluetooth";
+// Vendored (compiled) into src/vendor/smartcube so the app builds anywhere
+// (incl. GitHub Pages / GitHub Actions) without the unbuildable git dependency.
+import { connectSmartCube } from "../vendor/smartcube/index.js";
 
 let conn = null;
 let sub = null;

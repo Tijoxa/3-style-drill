@@ -1,0 +1,55 @@
+import { mergeOptionalServiceUuids } from './default-optional-services';
+import { extraScanFiltersForKnownDeviceName } from './device-name-scan-filters';
+function mergeManufacturerCompanyIds(protocols) {
+    const all = new Set();
+    for (const p of protocols) {
+        if (p.optionalManufacturerData) {
+            for (const cic of p.optionalManufacturerData) {
+                all.add(cic);
+            }
+        }
+    }
+    return Array.from(all).sort((a, b) => a - b);
+}
+/**
+ * Build Web Bluetooth `requestDevice` options for the given mode.
+ * Manufacturer IDs appear in `filters` (OR with name filters) and in `optionalManufacturerData`
+ * so `watchAdvertisements` exposes manufacturer data when the device matched by name prefix.
+ */
+export function buildRequestDeviceOptions(protocols, mode, extras) {
+    const protocolServices = [];
+    for (const p of protocols) {
+        for (const s of p.optionalServices) {
+            protocolServices.push(s);
+        }
+    }
+    const optionalServices = mergeOptionalServiceUuids(protocolServices);
+    const cics = mergeManufacturerCompanyIds(protocols);
+    const optionalManufacturerData = cics.length > 0 ? cics : undefined;
+    if (mode === 'any') {
+        return {
+            acceptAllDevices: true,
+            optionalServices,
+            optionalManufacturerData,
+        };
+    }
+    const filters = [];
+    for (const p of protocols) {
+        for (const f of p.nameFilters) {
+            filters.push(f);
+        }
+    }
+    for (const f of extraScanFiltersForKnownDeviceName(extras?.deviceName)) {
+        filters.push(f);
+    }
+    for (const companyIdentifier of cics) {
+        filters.push({
+            manufacturerData: [{ companyIdentifier }],
+        });
+    }
+    return {
+        filters,
+        optionalServices,
+        optionalManufacturerData,
+    };
+}
