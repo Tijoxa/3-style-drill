@@ -7,7 +7,7 @@ import {
   X, RotateCcw, SkipForward, Keyboard, BatteryMedium,
 } from "lucide-react";
 import {
-  SOLVED, applyMove, apply3Cycle, letterPieceId,
+  SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState,
   CORNER_LETTERS, EDGE_LETTERS, CORNER_LETTER_LIST, EDGE_LETTER_LIST,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
@@ -61,6 +61,8 @@ export default function App() {
   const modeRef = useRef(mode);
   const settingsRef = useRef(settings);
   const busyRef = useRef(false);
+  const refFaceletsRef = useRef(null);   // cube facelets when last declared "solved"
+  const rawFaceletsRef = useRef(SOLVED); // last raw facelets from the cube
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
 
@@ -125,13 +127,21 @@ export default function App() {
     if (targetRef.current && newState === targetRef.current) onSuccess();
   }, [onSuccess]);
 
+  const handleFacelets = useCallback((f) => {
+    if (!f || f.length !== 54) return;
+    rawFaceletsRef.current = f;
+    if (!refFaceletsRef.current) refFaceletsRef.current = f;
+    onStateChanged(relativeState(refFaceletsRef.current, f));
+  }, [onStateChanged]);
+
   const doMove = useCallback((move) => {
     onStateChanged(applyMove(cubeStateRef.current, move));
   }, [onStateChanged]);
 
   const resetCube = useCallback(() => {
-    // Re-declare the current cube as the solved reference. Detection is move-relative,
-    // so we simply reset our tracked state to solved and start a fresh case.
+    // Re-declare the current physical cube as the solved reference (floating reference).
+    // Detection & display are computed relative to this, so nothing "unsolves" afterward.
+    refFaceletsRef.current = rawFaceletsRef.current;
     cubeStateRef.current = SOLVED;
     setNetState(SOLVED);
     buildCase();
@@ -150,7 +160,7 @@ export default function App() {
   // init first case + on mode change
   useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode]);
 
-  // test/debug hook: lets automated tests simulate a perfect execution
+  // test/debug hook: lets automated tests simulate execution / cube facelets without Bluetooth
   useEffect(() => {
     window.__trainer = {
       getState: () => cubeStateRef.current,
@@ -158,8 +168,11 @@ export default function App() {
       getSuccess: () => successRef.current,
       solveCurrent: () => { if (targetRef.current) onStateChanged(targetRef.current); },
       openMacPrompt: () => new Promise((resolve) => setMacPrompt({ deviceName: "GAN-TEST", resolve })),
+      feedFacelets: (f) => handleFacelets(f),
+      markSolved: () => resetCube(),
     };
-  }, [onStateChanged]);
+    window.__cube = { SOLVED, applyMove, applyAlg, scramble };
+  }, [onStateChanged, handleFacelets, resetCube]);
 
   // keyboard controls
   useEffect(() => {
@@ -180,12 +193,11 @@ export default function App() {
     if (!isBluetoothSupported()) { toast.error("Web Bluetooth not supported. Use Chrome or Edge on desktop or Android (not iOS)."); return; }
     setBtStatus("connecting");
     setCubeName("Connecting…");
+    refFaceletsRef.current = null; // first facelets snapshot becomes the solved reference
     try {
       const info = await btConnect({
         onMove: (m) => onStateChanged(applyMove(cubeStateRef.current, m)),
-        // Detection is move-relative from a "solved" reference. We intentionally do NOT
-        // sync the absolute facelets during play (it fights the reset and shows the
-        // cube's real drift). Use "Cube Solved" to re-declare the solved reference.
+        onFacelets: handleFacelets,
         onBattery: (b) => setBattery(b),
         onStatus: (s) => setCubeName(s),
         onDisconnect: () => { setBtStatus("disconnected"); setCubeName(""); setBattery(null); toast("Cube disconnected"); },
@@ -193,7 +205,6 @@ export default function App() {
       }, { presetMac: settingsRef.current.macAddress });
       setCubeName(info.name);
       setBtStatus("connected");
-      // Start from a solved reference; the physical cube should be solved when connecting.
       cubeStateRef.current = SOLVED;
       setNetState(SOLVED);
       buildCase();
@@ -207,7 +218,7 @@ export default function App() {
       else toast.error(`Connection failed: ${msg}`);
       console.error("Cube connection error:", e);
     }
-  }, [btStatus, onStateChanged]);
+  }, [btStatus, onStateChanged, handleFacelets, buildCase]);
 
   const submitMac = useCallback((mac) => {
     if (macPrompt?.resolve) macPrompt.resolve(mac || null);

@@ -1,0 +1,28 @@
+{
+  "summary": "Executed the three deterministic debug-hook checks on the 3-style cube trainer. All checks passed: hooks defined, movement responds, and markSolved does not unsolve on re-feed of prior scramble state.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "hook_check_results": {
+    "hooks_defined": true,
+    "movement_responds": {
+      "getState_equals_SOLVED_after_feed_SOLVED": true,
+      "getState_equals_applyMove_R_after_feed_moved": true,
+      "getState_not_equals_SOLVED_after_move": true
+    },
+    "marksolved_does_not_unsolve": {
+      "a_equals_scr": true,
+      "b_equals_SOLVED_after_markSolved": true,
+      "c_equals_SOLVED_after_refeed_scr": true,
+      "c_equals_scr_bug_persists": false
+    }
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A", "frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Debug hooks window.__trainer (feedFacelets, markSolved, getState) and window.__cube (SOLVED, applyMove, applyAlg, scramble) are exposed on the trainer page and function correctly. Both reported bugs are FIXED."
+}

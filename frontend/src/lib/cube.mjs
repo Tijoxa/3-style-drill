@@ -177,6 +177,59 @@ export const EDGE_LETTER_LIST = Object.keys(EDGE_LETTERS);
 // Facelet index -> face char, for rendering the net with true colors
 export function stateToFaceMap(state) { return state.split(""); }
 
+// ---- Cubie-level conversion for relative (floating-reference) tracking ----
+// Canonical ordered facelets per corner/edge slot (clockwise for corners).
+const CORNER_SLOTS = Object.values(cornerPieces).map((g) => cornerOrdered(Math.min(...g)));
+const EDGE_SLOTS = Object.values(edgePieces).map((g) => edgeOrdered(Math.min(...g)));
+const CORNER_HOME = CORNER_SLOTS.map((o) => o.map((i) => SOLVED[i])); // solved colors per slot
+const EDGE_HOME = EDGE_SLOTS.map((o) => o.map((i) => SOLVED[i]));
+
+function multisetEq(a, b) { return [...a].sort().join("") === [...b].sort().join(""); }
+
+function faceletsToCubies(state) {
+  const cp = new Array(8), co = new Array(8), ep = new Array(12), eo = new Array(12);
+  for (let s = 0; s < 8; s++) {
+    const colors = CORNER_SLOTS[s].map((i) => state[i]);
+    let h = 0; for (let k = 0; k < 8; k++) if (multisetEq(colors, CORNER_HOME[k])) { h = k; break; }
+    let r = 0; for (let rr = 0; rr < 3; rr++) if (colors.every((c, k) => c === CORNER_HOME[h][(k + rr) % 3])) { r = rr; break; }
+    cp[s] = h; co[s] = r;
+  }
+  for (let s = 0; s < 12; s++) {
+    const colors = EDGE_SLOTS[s].map((i) => state[i]);
+    let h = 0; for (let k = 0; k < 12; k++) if (multisetEq(colors, EDGE_HOME[k])) { h = k; break; }
+    const r = colors[0] === EDGE_HOME[h][0] ? 0 : 1;
+    ep[s] = h; eo[s] = r;
+  }
+  return { cp, co, ep, eo };
+}
+
+function cubiesToFacelets(c) {
+  const out = SOLVED.split("");
+  for (let s = 0; s < 8; s++) {
+    const h = c.cp[s], r = c.co[s];
+    for (let k = 0; k < 3; k++) out[CORNER_SLOTS[s][k]] = CORNER_HOME[h][(k + r) % 3];
+  }
+  for (let s = 0; s < 12; s++) {
+    const h = c.ep[s], r = c.eo[s];
+    for (let k = 0; k < 2; k++) out[EDGE_SLOTS[s][k]] = EDGE_HOME[h][(k + r) % 2];
+  }
+  return out.join("");
+}
+
+// rel = ref^-1 * cur  (physical delta from ref to cur, expressed on a solved cube)
+export function relativeState(refFacelets, curFacelets) {
+  if (!refFacelets || refFacelets.length !== 54) return curFacelets;
+  const ref = faceletsToCubies(refFacelets), cur = faceletsToCubies(curFacelets);
+  // inverse of ref
+  const rInvCp = new Array(8), rInvCo = new Array(8), rInvEp = new Array(12), rInvEo = new Array(12);
+  for (let i = 0; i < 8; i++) { rInvCp[ref.cp[i]] = i; rInvCo[ref.cp[i]] = (3 - ref.co[i]) % 3; }
+  for (let i = 0; i < 12; i++) { rInvEp[ref.ep[i]] = i; rInvEo[ref.ep[i]] = (2 - ref.eo[i]) % 2; }
+  const cp = new Array(8), co = new Array(8), ep = new Array(12), eo = new Array(12);
+  for (let i = 0; i < 8; i++) { cp[i] = rInvCp[cur.cp[i]]; co[i] = (rInvCo[cur.cp[i]] + cur.co[i]) % 3; }
+  for (let i = 0; i < 12; i++) { ep[i] = rInvEp[cur.ep[i]]; eo[i] = (rInvEo[cur.ep[i]] + cur.eo[i]) % 2; }
+  return cubiesToFacelets({ cp, co, ep, eo });
+}
+
 // ---- Self tests (imported by cube.test.mjs) ----
 export function runTests() {
   let pass = 0, fail = 0;
@@ -228,6 +281,17 @@ export function runTests() {
     if (apply3Cycle(SOLVED, [b,x,y], "corner") === comm) { reproduced = true; console.log("comm == pair", b,x,y); break outer; }
   }
   check("comm reproducible by Speffz 3-cycle (handedness ok)", reproduced);
+
+  // relative-state tests (floating reference tracking)
+  check("relative(SOLVED, cur) == cur", relativeState(SOLVED, comm) === comm);
+  check("relative(cur, cur) == SOLVED", relativeState(comm, comm) === SOLVED);
+  const A = applyAlg(SOLVED, "R U F' L2 D");
+  const AR = applyMove(A, "R");
+  check("relative(A, A·R) == solved·R", relativeState(A, AR) === applyMove(SOLVED, "R"));
+  const B = applyAlg(SOLVED, "U2 B D' L F2");
+  const seq = "R U R' U' F2 D";
+  check("relative(B, B·seq) == solved·seq", relativeState(B, applyAlg(B, seq)) === applyAlg(SOLVED, seq));
+  check("roundtrip cubies", (() => { const c = applyAlg(SOLVED, "R U R' F D2 L'"); return relativeState(SOLVED, c) === c; })());
 
   console.log(`\n${pass} passed, ${fail} failed`);
   return fail === 0;
