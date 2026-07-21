@@ -13,32 +13,30 @@ function macKey(device) {
   return "cube_mac_" + (device?.id || device?.name || "default");
 }
 
-// GAN / MoYu / QiYi cubes need a MAC for decryption. If the browser can't read it
-// from advertisement data, fall back to a cached / user-provided MAC.
-async function macAddressProvider(device, isRetry) {
-  const key = macKey(device);
-  let mac = localStorage.getItem(key);
-  if (!mac && isRetry) {
-    mac = window.prompt(
-      "Could not read your cube's Bluetooth MAC automatically.\n\n" +
-      "Enter the MAC address of your smart cube (format AA:BB:CC:DD:EE:FF).\n" +
-      "You can find it in your cube's official app (e.g. GAN / Cube Station).\n" +
-      "Leave empty to cancel."
-    );
+// handlers: { onMove, onFacelets, onBattery, onDisconnect, onStatus, requestMac }
+// options: { presetMac }
+export async function connect(handlers, options = {}) {
+  const presetMac = (options.presetMac || "").trim();
+
+  const provider = async (device, isRetry) => {
+    const key = macKey(device);
+    let mac = presetMac || localStorage.getItem(key);
+    if (mac) return mac.trim().toUpperCase();
+    // let the library try advertisement / manufacturer data first
+    if (!isRetry) return null;
+    if (handlers.requestMac) mac = await handlers.requestMac(device?.name || "");
     if (mac) {
       mac = mac.trim().toUpperCase();
       localStorage.setItem(key, mac);
+      return mac;
     }
-  }
-  return mac || null;
-}
+    return null;
+  };
 
-// handlers: { onMove, onFacelets, onBattery, onDisconnect, onStatus }
-export async function connect(handlers) {
   conn = await connectSmartCube({
     enableAddressSearch: true,
     onStatus: (s) => handlers.onStatus?.(s),
-    macAddressProvider,
+    macAddressProvider: provider,
   });
 
   sub = conn.events$.subscribe((event) => {
@@ -85,4 +83,10 @@ export async function disconnect() {
   try { sub?.unsubscribe?.(); } catch (e) {}
   try { await conn?.disconnect?.(); } catch (e) {}
   conn = null; sub = null;
+}
+
+export async function requestFacelets() {
+  try {
+    if (conn?.capabilities?.facelets) await conn.sendCommand?.({ type: "REQUEST_FACELETS" });
+  } catch (e) { /* ignore */ }
 }

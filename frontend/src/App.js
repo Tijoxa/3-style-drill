@@ -34,7 +34,7 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: true };
+const defaultSettings = { cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: true, macAddress: "" };
 
 export default function App() {
   const [mode, setMode] = useState("corners");
@@ -47,6 +47,7 @@ export default function App() {
   const [cubeName, setCubeName] = useState("");
   const [battery, setBattery] = useState(null);
   const [drawer, setDrawer] = useState(null); // 'settings' | 'stats' | null
+  const [macPrompt, setMacPrompt] = useState(null); // { deviceName, resolve } | null
   const [lifetime, setLifetime] = useState(() => loadJSON(STATS_KEY, { totalCases: 0, totalTimeMs: 0, bestStreak: 0, perDay: {} }));
 
   const [session, setSession] = useState({ solved: 0, streak: 0, bestStreak: 0, times: [] });
@@ -54,6 +55,7 @@ export default function App() {
 
   const cubeStateRef = useRef(SOLVED);
   const streakRef = useRef(0);
+  const successRef = useRef(0);
   const targetRef = useRef(null);
   const caseStartRef = useRef(Date.now());
   const modeRef = useRef(mode);
@@ -94,6 +96,7 @@ export default function App() {
     setFlash("ok");
     const newStreak = streakRef.current + 1;
     streakRef.current = newStreak;
+    successRef.current += 1;
     setSession((prev) => ({
       solved: prev.solved + 1,
       streak: newStreak,
@@ -127,10 +130,12 @@ export default function App() {
   }, [onStateChanged]);
 
   const resetCube = useCallback(() => {
+    // Re-declare the current cube as the solved reference. Detection is move-relative,
+    // so we simply reset our tracked state to solved and start a fresh case.
     cubeStateRef.current = SOLVED;
     setNetState(SOLVED);
     buildCase();
-    toast.success("Cube set to solved state");
+    toast.success("Cube set as solved");
   }, [buildCase]);
 
   const skipCase = useCallback(() => {
@@ -150,7 +155,9 @@ export default function App() {
     window.__trainer = {
       getState: () => cubeStateRef.current,
       getTarget: () => targetRef.current,
+      getSuccess: () => successRef.current,
       solveCurrent: () => { if (targetRef.current) onStateChanged(targetRef.current); },
+      openMacPrompt: () => new Promise((resolve) => setMacPrompt({ deviceName: "GAN-TEST", resolve })),
     };
   }, [onStateChanged]);
 
@@ -176,23 +183,36 @@ export default function App() {
     try {
       const info = await btConnect({
         onMove: (m) => onStateChanged(applyMove(cubeStateRef.current, m)),
-        onFacelets: (f) => { if (f && f.length === 54) onStateChanged(f); },
+        // Detection is move-relative from a "solved" reference. We intentionally do NOT
+        // sync the absolute facelets during play (it fights the reset and shows the
+        // cube's real drift). Use "Cube Solved" to re-declare the solved reference.
         onBattery: (b) => setBattery(b),
         onStatus: (s) => setCubeName(s),
         onDisconnect: () => { setBtStatus("disconnected"); setCubeName(""); setBattery(null); toast("Cube disconnected"); },
-      });
+        requestMac: (deviceName) => new Promise((resolve) => setMacPrompt({ deviceName, resolve })),
+      }, { presetMac: settingsRef.current.macAddress });
       setCubeName(info.name);
       setBtStatus("connected");
+      // Start from a solved reference; the physical cube should be solved when connecting.
+      cubeStateRef.current = SOLVED;
+      setNetState(SOLVED);
+      buildCase();
       toast.success(`Connected: ${info.name}`);
     } catch (e) {
       setBtStatus("disconnected");
       setCubeName("");
       const msg = (e && e.message) ? e.message : String(e);
       if (/cancel|User cancelled|chooser/i.test(msg)) toast("Connection cancelled");
+      else if (/mac address/i.test(msg)) toast.error("Could not determine the cube's MAC. Enter it manually in Settings or when prompted.");
       else toast.error(`Connection failed: ${msg}`);
       console.error("Cube connection error:", e);
     }
   }, [btStatus, onStateChanged]);
+
+  const submitMac = useCallback((mac) => {
+    if (macPrompt?.resolve) macPrompt.resolve(mac || null);
+    setMacPrompt(null);
+  }, [macPrompt]);
 
   const resetStats = () => {
     const empty = { totalCases: 0, totalTimeMs: 0, bestStreak: 0, perDay: {} };
@@ -333,7 +353,65 @@ export default function App() {
           </>
         )}
       </AnimatePresence>
+
+      {/* MAC address prompt modal */}
+      <AnimatePresence>
+        {macPrompt && (
+          <MacModal deviceName={macPrompt.deviceName} onSubmit={submitMac} onSaveDefault={(mac) => setSettings((s) => ({ ...s, macAddress: mac }))} />
+        )}
+      </AnimatePresence>
     </div>
+  );
+}
+
+function MacModal({ deviceName, onSubmit, onSaveDefault }) {
+  const [mac, setMac] = useState("");
+  const [remember, setRemember] = useState(true);
+  const valid = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test(mac.trim());
+  const submit = () => {
+    const clean = mac.trim().toUpperCase();
+    if (remember) onSaveDefault(clean);
+    onSubmit(clean);
+  };
+  return (
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 60 }} />
+      <motion.div
+        data-testid="mac-modal"
+        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.15 }}
+        style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 440, maxWidth: "92vw", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: 26, zIndex: 61 }}
+      >
+        <h2 className="font-head" style={{ fontSize: 26, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>Enter Cube MAC Address</h2>
+        <p className="font-mono" style={{ color: "#A1A1AA", fontSize: 12.5, lineHeight: 1.7, marginTop: 10 }}>
+          Your browser couldn't read the MAC of <b style={{ color: "#fff" }}>{deviceName || "your cube"}</b> automatically.
+          GAN / MoYu / QiYi cubes need it for decryption. Find it in your cube's official app
+          (GAN: Cube Station → cube settings), then enter it below.
+        </p>
+        <input
+          data-testid="mac-input"
+          autoFocus
+          value={mac}
+          onChange={(e) => setMac(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter" && valid) submit(); }}
+          placeholder="AA:BB:CC:DD:EE:FF"
+          style={{ ...selectStyle, width: "100%", marginTop: 16, letterSpacing: "0.08em", boxSizing: "border-box" }}
+        />
+        {mac && !valid && <div className="font-mono" style={{ color: "var(--error)", fontSize: 11, marginTop: 6 }}>Format: AA:BB:CC:DD:EE:FF</div>}
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, cursor: "pointer" }}>
+          <input data-testid="mac-remember" type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+          <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>Remember this MAC address</span>
+        </label>
+        <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "flex-end" }}>
+          <button data-testid="mac-cancel-btn" onClick={() => onSubmit(null)} style={ghostBtn}>Cancel</button>
+          <button data-testid="mac-submit-btn" onClick={submit} disabled={!valid}
+            style={{ ...moveBtn, minWidth: 120, padding: "9px 18px", opacity: valid ? 1 : 0.4, background: "var(--active)", borderColor: "var(--active)" }}>
+            Connect
+          </button>
+        </div>
+      </motion.div>
+    </>
   );
 }
 
@@ -380,6 +458,18 @@ function SettingsPanel({ settings, setSettings, resetStats }) {
       </Field>
       <Toggle label="Sound feedback" testid="sound-toggle" value={settings.sound} onChange={(v) => set("sound", v)} />
       <Toggle label="Show manual move buttons" testid="manual-toggle" value={settings.showManual} onChange={(v) => set("showManual", v)} />
+      <Field label="Cube MAC address (GAN / MoYu / QiYi)">
+        <input
+          data-testid="settings-mac-input"
+          value={settings.macAddress || ""}
+          onChange={(e) => set("macAddress", e.target.value)}
+          placeholder="AA:BB:CC:DD:EE:FF (optional)"
+          style={{ ...selectStyle, letterSpacing: "0.06em" }}
+        />
+        <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
+          Saved MAC is used automatically when connecting. Leave empty to auto-detect / be prompted.
+        </span>
+      </Field>
       <button data-testid="reset-stats-btn" onClick={resetStats} style={{ ...ghostBtn, borderColor: "var(--error)", color: "var(--error)", justifyContent: "center", marginTop: 8 }}>Reset all statistics</button>
       <p className="font-mono" style={{ color: "#52525B", fontSize: 12, lineHeight: 1.6 }}>
         Execute the commutator for the shown pair on your cube. When the cube reaches the resulting state, the next pair appears automatically. No cube? Use the manual move buttons or keyboard (U R F D L B, hold Shift for prime).
