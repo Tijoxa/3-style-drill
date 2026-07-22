@@ -94,6 +94,34 @@ export const EDGE_LETTERS = {
   m:10,n:14,o:16,p:12,q:46,r:50,s:52,t:48,u:28,v:32,w:34,x:30,
 };
 
+// --- Chichu (彳亍) lettering: the common Chinese scheme (default in BLDDB) ---
+// Generated from the BLDDB source scheme string, mapped to our facelet indices.
+export const CHICHU_CORNER_LETTERS = {
+  D:0,G:2,A:6,J:8,E:36,C:38,Q:42,M:44,B:18,L:20,N:24,Y:26,
+  K:9,I:11,Z:15,S:17,H:45,F:47,T:51,P:53,W:27,X:29,O:33,R:35,
+};
+export const CHICHU_EDGE_LETTERS = {
+  e:1,c:3,g:5,a:7,d:37,x:39,t:41,l:43,b:19,s:21,q:23,j:25,
+  h:10,r:12,z:14,p:16,f:46,y:48,w:50,n:52,i:28,k:30,o:32,m:34,
+};
+
+export const SCHEMES = {
+  speffz: {
+    name: "Speffz",
+    corner: CORNER_LETTERS,
+    edge: EDGE_LETTERS,
+    cornerBuffer: "C", // UFR
+    edgeBuffer: "c",   // UF
+  },
+  chichu: {
+    name: "Chichu (彳亍)",
+    corner: CHICHU_CORNER_LETTERS,
+    edge: CHICHU_EDGE_LETTERS,
+    cornerBuffer: "J", // UFR
+    edgeBuffer: "a",   // UF
+  },
+};
+
 // Group facelets into pieces by cubie position; corners have no zero coord, edges one zero.
 function isCorner(pos) { return pos.every(c => c !== 0); }
 function pieceKey(pos) { return pos.join(","); }
@@ -127,21 +155,21 @@ function edgeOrdered(startIdx) {
   return [startIdx, other];
 }
 
-function letterToFacelet(letter, type) {
-  return (type === "corner" ? CORNER_LETTERS : EDGE_LETTERS)[letter];
+function letterToFacelet(letter, type, maps = SCHEMES.speffz) {
+  return (type === "corner" ? maps.corner : maps.edge)[letter];
 }
-export function letterPieceId(letter, type) {
-  const idx = letterToFacelet(letter, type);
+export function letterPieceId(letter, type, maps = SCHEMES.speffz) {
+  const idx = letterToFacelet(letter, type, maps);
   return pieceKey(FACELETS[idx].pos);
 }
-function orderedFor(letter, type) {
-  const idx = letterToFacelet(letter, type);
+function orderedFor(letter, type, maps = SCHEMES.speffz) {
+  const idx = letterToFacelet(letter, type, maps);
   return type === "corner" ? cornerOrdered(idx) : edgeOrdered(idx);
 }
 
 // Apply a 3-cycle of pieces: content flows buffer -> t1 -> t2 -> buffer, matching sticker roles.
-export function apply3Cycle(state, [buffer, t1, t2], type) {
-  const bo = orderedFor(buffer, type), o1 = orderedFor(t1, type), o2 = orderedFor(t2, type);
+export function apply3Cycle(state, [buffer, t1, t2], type, maps = SCHEMES.speffz) {
+  const bo = orderedFor(buffer, type, maps), o1 = orderedFor(t1, type, maps), o2 = orderedFor(t2, type, maps);
   const out = state.split("");
   const n = bo.length;
   for (let k = 0; k < n; k++) {

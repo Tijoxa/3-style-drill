@@ -7,8 +7,7 @@ import {
   X, RotateCcw, SkipForward, Keyboard, BatteryMedium,
 } from "lucide-react";
 import {
-  SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState,
-  CORNER_LETTERS, EDGE_LETTERS, CORNER_LETTER_LIST, EDGE_LETTER_LIST,
+  SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
 import CubeNet from "./components/CubeNet";
@@ -16,7 +15,7 @@ import CubeNet from "./components/CubeNet";
 const STATS_KEY = "bld3style_stats_v1";
 const SETTINGS_KEY = "bld3style_settings_v1";
 const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
-const facelet = (l, type) => (type === "corner" ? CORNER_LETTERS : EDGE_LETTERS)[l];
+const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
 const today = () => new Date().toISOString().slice(0, 10);
 
 function loadJSON(key, fallback) {
@@ -34,7 +33,7 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: true, macAddress: "" };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: true, macAddress: "" };
 
 export default function App() {
   const [mode, setMode] = useState("corners");
@@ -69,22 +68,23 @@ export default function App() {
   const buildCase = useCallback(() => {
     const m = modeRef.current;
     const s = settingsRef.current;
+    const maps = SCHEMES[s.scheme] || SCHEMES.speffz;
     const type = m === "corners" ? "corner" : "edge";
-    const list = type === "corner" ? CORNER_LETTER_LIST : EDGE_LETTER_LIST;
+    const list = Object.keys(type === "corner" ? maps.corner : maps.edge);
     const buffer = type === "corner" ? s.cornerBuffer : s.edgeBuffer;
-    const bufPiece = letterPieceId(buffer, type);
-    const cands = list.filter((l) => letterPieceId(l, type) !== bufPiece);
+    const bufPiece = letterPieceId(buffer, type, maps);
+    const cands = list.filter((l) => letterPieceId(l, type, maps) !== bufPiece);
     const cur = cubeStateRef.current;
     for (let tries = 0; tries < 80; tries++) {
       const t1 = rand(cands);
-      const t2opts = cands.filter((l) => l !== t1 && letterPieceId(l, type) !== letterPieceId(t1, type));
+      const t2opts = cands.filter((l) => l !== t1 && letterPieceId(l, type, maps) !== letterPieceId(t1, type, maps));
       const t2 = rand(t2opts);
-      const target = apply3Cycle(cur, [buffer, t1, t2], type);
+      const target = apply3Cycle(cur, [buffer, t1, t2], type, maps);
       if (target !== cur) {
         targetRef.current = target;
         caseStartRef.current = Date.now();
         setPair({ t1, t2, type });
-        setHighlights({ bufferIdx: facelet(buffer, type), t1Idx: facelet(t1, type), t2Idx: facelet(t2, type) });
+        setHighlights({ bufferIdx: facelet(buffer, type, maps), t1Idx: facelet(t1, type, maps), t2Idx: facelet(t2, type, maps) });
         return;
       }
     }
@@ -157,8 +157,8 @@ export default function App() {
     buildCase();
   }, [buildCase]);
 
-  // init first case + on mode change
-  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode]);
+  // init first case + rebuild on mode / scheme / buffer change
+  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer]);
 
   // test/debug hook: lets automated tests simulate execution / cube facelets without Bluetooth
   useEffect(() => {
@@ -294,7 +294,7 @@ export default function App() {
       {/* Center */}
       <main style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, padding: 20 }}>
         <div className="overline" style={{ color: "#52525B", fontSize: 12 }}>
-          {mode === "corners" ? "CORNER 3-STYLE" : "EDGE 3-STYLE"} · BUFFER {mode === "corners" ? settings.cornerBuffer : settings.edgeBuffer}
+          {mode === "corners" ? "CORNER 3-STYLE" : "EDGE 3-STYLE"} · BUFFER {mode === "corners" ? settings.cornerBuffer : settings.edgeBuffer} · {(SCHEMES[settings.scheme] || SCHEMES.speffz).name}
         </div>
 
         <AnimatePresence mode="popLayout">
@@ -445,26 +445,32 @@ function Stat({ label, value, accent, testid, small, last }) {
   );
 }
 
-function CornerBufferOptions() {
-  // one representative letter per corner piece (U/D sticker)
-  return ["A", "B", "C", "D", "U", "V", "W", "X"];
-}
-function EdgeBufferOptions() {
-  return ["a", "b", "c", "d", "u", "v", "w", "x"];
+function bufferOptions(scheme, type) {
+  const maps = SCHEMES[scheme] || SCHEMES.speffz;
+  return Object.keys(type === "corner" ? maps.corner : maps.edge).sort();
 }
 
 function SettingsPanel({ settings, setSettings, resetStats }) {
   const set = (k, v) => setSettings((s) => ({ ...s, [k]: v }));
+  const changeScheme = (scheme) => {
+    const s = SCHEMES[scheme] || SCHEMES.speffz;
+    setSettings((prev) => ({ ...prev, scheme, cornerBuffer: s.cornerBuffer, edgeBuffer: s.edgeBuffer }));
+  };
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
+      <Field label="Lettering scheme">
+        <select data-testid="scheme-select" value={settings.scheme} onChange={(e) => changeScheme(e.target.value)} style={selectStyle}>
+          {Object.entries(SCHEMES).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
+        </select>
+      </Field>
       <Field label="Corner buffer">
         <select data-testid="corner-buffer-select" value={settings.cornerBuffer} onChange={(e) => set("cornerBuffer", e.target.value)} style={selectStyle}>
-          {CornerBufferOptions().map((l) => <option key={l} value={l}>{l}</option>)}
+          {bufferOptions(settings.scheme, "corner").map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
       </Field>
       <Field label="Edge buffer">
         <select data-testid="edge-buffer-select" value={settings.edgeBuffer} onChange={(e) => set("edgeBuffer", e.target.value)} style={selectStyle}>
-          {EdgeBufferOptions().map((l) => <option key={l} value={l}>{l}</option>)}
+          {bufferOptions(settings.scheme, "edge").map((l) => <option key={l} value={l}>{l}</option>)}
         </select>
       </Field>
       <Toggle label="Sound feedback" testid="sound-toggle" value={settings.sound} onChange={(v) => set("sound", v)} />
