@@ -1,11 +1,11 @@
 import "./App.css";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
   Bluetooth, BluetoothConnected, Settings as SettingsIcon, BarChart3,
-  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2,
+  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3,
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
@@ -16,7 +16,6 @@ import CubeNet from "./components/CubeNet";
 
 const STATS_KEY = "bld3style_stats_v1";
 const SETTINGS_KEY = "bld3style_settings_v1";
-const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
 const today = () => new Date().toISOString().slice(0, 10);
 
@@ -44,7 +43,8 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare" };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", disabledCases: {} };
+const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 
 export default function App() {
   const [mode, setMode] = useState("corners");
@@ -60,6 +60,7 @@ export default function App() {
   const [drawer, setDrawer] = useState(null); // 'settings' | 'stats' | null
   const [macPrompt, setMacPrompt] = useState(null); // { deviceName, resolve } | null
   const [hintOpen, setHintOpen] = useState(false);
+  const [subsetOpen, setSubsetOpen] = useState(false);
   const [lifetime, setLifetime] = useState(() => loadJSON(STATS_KEY, { totalCases: 0, totalTimeMs: 0, bestStreak: 0, perDay: {} }));
 
   const [session, setSession] = useState({ solved: 0, streak: 0, bestStreak: 0, times: [] });
@@ -88,11 +89,28 @@ export default function App() {
     const buffer = type === "corner" ? s.cornerBuffer : s.edgeBuffer;
     const bufPiece = letterPieceId(buffer, type, maps);
     const cands = list.filter((l) => letterPieceId(l, type, maps) !== bufPiece);
+    const disabled = s.disabledCases || {};
+    // All valid, currently-enabled ordered target pairs.
+    const validPairs = [];
+    for (const t1 of cands) {
+      const p1 = letterPieceId(t1, type, maps);
+      for (const t2 of cands) {
+        if (t2 === t1 || letterPieceId(t2, type, maps) === p1) continue;
+        if (disabled[caseKey(s.scheme, type, t1, t2)]) continue;
+        validPairs.push([t1, t2]);
+      }
+    }
+    if (validPairs.length === 0) {
+      targetRef.current = null;
+      caseStartRef.current = null;
+      caseStartedRef.current = false;
+      setPair(null);
+      setHighlights({});
+      return;
+    }
     const cur = cubeStateRef.current;
-    for (let tries = 0; tries < 80; tries++) {
-      const t1 = rand(cands);
-      const t2opts = cands.filter((l) => l !== t1 && letterPieceId(l, type, maps) !== letterPieceId(t1, type, maps));
-      const t2 = rand(t2opts);
+    for (let tries = 0; tries < 200; tries++) {
+      const [t1, t2] = validPairs[Math.floor(Math.random() * validPairs.length)];
       const target = apply3Cycle(cur, [buffer, t1, t2], type, maps);
       if (target !== cur) {
         targetRef.current = target;
@@ -179,7 +197,7 @@ export default function App() {
   }, [buildCase]);
 
   // init first case + rebuild on mode / scheme / buffer change
-  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer]);
+  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.disabledCases]);
 
   // test/debug hook: lets automated tests simulate execution / cube facelets without Bluetooth
   useEffect(() => {
@@ -198,7 +216,7 @@ export default function App() {
   // keyboard controls
   useEffect(() => {
     const handler = (e) => {
-      if (drawer || hintOpen) return;
+      if (drawer || hintOpen || subsetOpen) return;
       const k = e.key;
       if (k === " ") { e.preventDefault(); skipCase(); return; }
       if (k.toLowerCase() === "h") { e.preventDefault(); setHintOpen(true); return; }
@@ -208,7 +226,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [doMove, skipCase, drawer, hintOpen]);
+  }, [doMove, skipCase, drawer, hintOpen, subsetOpen]);
 
   const handleConnect = useCallback(async () => {
     if (btStatus === "connected") { await btDisconnect(); setBtStatus("disconnected"); setCubeName(""); setBattery(null); return; }
@@ -382,7 +400,7 @@ export default function App() {
                 <h2 className="font-head" style={{ fontSize: 28, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>{drawer === "settings" ? "Settings" : "Statistics"}</h2>
                 <button data-testid="close-drawer-btn" onClick={() => setDrawer(null)} style={iconBtn}><X size={18} /></button>
               </div>
-              {drawer === "settings" ? <SettingsPanel settings={settings} setSettings={setSettings} resetStats={resetStats} /> : <StatsPanel lifetime={lifetime} session={session} avgMs={avgMs} />}
+              {drawer === "settings" ? <SettingsPanel settings={settings} setSettings={setSettings} resetStats={resetStats} onOpenSubset={() => setSubsetOpen(true)} /> : <StatsPanel lifetime={lifetime} session={session} avgMs={avgMs} />}
             </motion.aside>
           </>
         )}
@@ -407,6 +425,13 @@ export default function App() {
             setStyle={(v) => setSettings((s) => (pair.type === "corner" ? { ...s, cornerStyle: v } : { ...s, edgeStyle: v }))}
             onClose={() => setHintOpen(false)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Case subset selector grid */}
+      <AnimatePresence>
+        {subsetOpen && (
+          <SubsetModal settings={settings} setSettings={setSettings} onClose={() => setSubsetOpen(false)} />
         )}
       </AnimatePresence>
     </div>
@@ -467,6 +492,237 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
             style={{ ...moveBtn, minWidth: 120, padding: "9px 18px", opacity: valid ? 1 : 0.4, background: "var(--active)", borderColor: "var(--active)" }}>
             Connect
           </button>
+        </div>
+      </motion.div>
+    </>,
+    document.body
+  );
+}
+
+const SUBSET_COLORS = {
+  enabled: "#22C55E",        // green
+  disabled: "#3F3F46",       // dark gray
+  impossible: "#111114",     // near-black (locked)
+  bufferEnabled: "#22C55E",  // green + stripes overlay (dimmed)
+  bufferDisabled: "#3F3F46", // dark + stripes overlay (dimmed)
+};
+const STRIPES = "repeating-linear-gradient(45deg, rgba(255,255,255,0.28) 0 2px, transparent 2px 5px)";
+
+function SubsetModal({ settings, setSettings, onClose }) {
+  const isMobile = useIsMobile();
+  const scheme = settings.scheme;
+  const maps = SCHEMES[scheme] || SCHEMES.speffz;
+  const [type, setType] = useState("corner");
+  const buffer = type === "corner" ? settings.cornerBuffer : settings.edgeBuffer;
+  const letters = useMemo(
+    () => Object.keys(type === "corner" ? maps.corner : maps.edge).sort(),
+    [type, maps]
+  );
+  const bufPiece = letterPieceId(buffer, type, maps);
+  const pieceOf = useCallback((l) => letterPieceId(l, type, maps), [type, maps]);
+  const prefix = `${scheme}:${type}:`;
+
+  // local working set of disabled "t1:t2" keys for the current scheme+type
+  const seed = useCallback(() => {
+    const w = {};
+    Object.keys(settings.disabledCases || {}).forEach((k) => {
+      if (k.startsWith(prefix)) w[k.slice(prefix.length)] = true;
+    });
+    return w;
+    // eslint-disable-next-line
+  }, [prefix]);
+  const [work, setWork] = useState(seed);
+  const workRef = useRef(work);
+  useEffect(() => { workRef.current = work; }, [work]);
+  useEffect(() => { setWork(seed()); /* eslint-disable-next-line */ }, [type, scheme]);
+
+  const commit = useCallback((w) => {
+    setSettings((s) => {
+      const dc = { ...(s.disabledCases || {}) };
+      Object.keys(dc).forEach((k) => { if (k.startsWith(prefix)) delete dc[k]; });
+      Object.keys(w).forEach((kk) => { dc[prefix + kk] = true; });
+      return { ...s, disabledCases: dc };
+    });
+  }, [prefix, setSettings]);
+
+  const paint = useRef({ active: false, mode: null });
+  useEffect(() => {
+    const up = () => { if (paint.current.active) { paint.current.active = false; commit(workRef.current); } };
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => { window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up); };
+  }, [commit]);
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const isImpossible = useCallback((t1, t2) => t1 === t2 || pieceOf(t1) === pieceOf(t2), [pieceOf]);
+  const isBufferExcluded = useCallback((t1, t2) => pieceOf(t1) === bufPiece || pieceOf(t2) === bufPiece, [pieceOf, bufPiece]);
+
+  const applyCell = (t1, t2, mode) => {
+    if (isImpossible(t1, t2)) return;
+    setWork((w) => {
+      const k = `${t1}:${t2}`;
+      if (mode === "disable") { if (w[k]) return w; return { ...w, [k]: true }; }
+      if (!w[k]) return w; const n = { ...w }; delete n[k]; return n;
+    });
+  };
+  const onCellDown = (t1, t2) => {
+    if (isImpossible(t1, t2)) return;
+    const currentlyDisabled = !!workRef.current[`${t1}:${t2}`];
+    const mode = currentlyDisabled ? "enable" : "disable";
+    paint.current = { active: true, mode };
+    applyCell(t1, t2, mode);
+  };
+  const onCellEnter = (t1, t2) => { if (paint.current.active) applyCell(t1, t2, paint.current.mode); };
+
+  const setBulk = (mode, filter) => {
+    setWork((w) => {
+      const n = { ...w };
+      for (const t1 of letters) for (const t2 of letters) {
+        if (isImpossible(t1, t2)) continue;
+        if (filter && !filter(t1, t2)) continue;
+        const k = `${t1}:${t2}`;
+        if (mode === "disable") n[k] = true; else delete n[k];
+      }
+      return n;
+    });
+  };
+  const commitBulk = (mode, filter) => { setBulk(mode, filter); setTimeout(() => commit(workRef.current), 0); };
+
+  const stateOf = (t1, t2) => {
+    if (isImpossible(t1, t2)) return "impossible";
+    const disabled = !!work[`${t1}:${t2}`];
+    if (isBufferExcluded(t1, t2)) return disabled ? "bufferDisabled" : "bufferEnabled";
+    return disabled ? "disabled" : "enabled";
+  };
+
+  // count active (enabled, drillable) cases
+  let active = 0, total = 0;
+  for (const t1 of letters) for (const t2 of letters) {
+    if (isImpossible(t1, t2) || isBufferExcluded(t1, t2)) continue;
+    total += 1;
+    if (!work[`${t1}:${t2}`]) active += 1;
+  }
+
+  const cell = isMobile ? 15 : 22;
+  const gap = 2;
+  const label = cell;
+
+  const modalStyle = {
+    position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+    width: "min(96vw, 860px)", maxHeight: "92dvh", overflow: "auto", boxSizing: "border-box",
+  };
+
+  const legend = [
+    ["enabled", "Enabled"],
+    ["disabled", "Disabled"],
+    ["impossible", "Impossible"],
+    ["bufferEnabled", "Enabled (buffer-excluded)"],
+    ["bufferDisabled", "Disabled (buffer-excluded)"],
+  ];
+
+  return createPortal(
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        onClick={onClose}
+        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 70 }} />
+      <motion.div
+        data-testid="subset-modal"
+        initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
+        transition={{ duration: 0.15 }}
+        style={{ ...modalStyle, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 14 : 22, zIndex: 71 }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Grid3X3 size={20} style={{ color: "var(--active)" }} />
+            <h2 className="font-head" style={{ fontSize: 22, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>Case subset</h2>
+          </div>
+          <button data-testid="subset-close-btn" onClick={onClose} style={iconBtn}><X size={18} /></button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+          <div data-testid="subset-type-switch" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden", background: "var(--surface)" }}>
+            {[["corner", "Corners"], ["edge", "Edges"]].map(([t, l]) => (
+              <button key={t} data-testid={`subset-type-${t}`} onClick={() => setType(t)} className="overline font-head"
+                style={{ padding: "8px 16px", fontSize: 12, letterSpacing: "0.12em", cursor: "pointer", border: "none",
+                  background: type === t ? "var(--surface-2)" : "transparent", color: type === t ? "#fff" : "#7a7a7a",
+                  boxShadow: type === t ? "inset 0 0 0 1px var(--active)" : "none" }}>{l}</button>
+            ))}
+          </div>
+          <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
+            buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} cases active
+          </span>
+          <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexWrap: "wrap" }}>
+            <button data-testid="subset-enable-all" onClick={() => commitBulk("enable")} style={{ ...ghostBtn, fontSize: 12 }}>Enable all</button>
+            <button data-testid="subset-disable-all" onClick={() => commitBulk("disable")} style={{ ...ghostBtn, fontSize: 12 }}>Disable all</button>
+          </div>
+        </div>
+
+        <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 10, lineHeight: 1.6 }}>
+          Row = first target, column = second target (buffer → row → column). Click or drag to paint. Click a row/column label to toggle a whole line.
+        </p>
+
+        {/* Legend */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, margin: "10px 0 14px" }}>
+          {legend.map(([k, l]) => (
+            <div key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 14, height: 14, borderRadius: 3, background: SUBSET_COLORS[k], opacity: k.startsWith("buffer") ? 0.4 : 1, backgroundImage: k.startsWith("buffer") ? STRIPES : "none", border: k === "impossible" ? "1px solid #2a2a2e" : "none", display: "inline-block" }} />
+              <span className="font-mono" style={{ fontSize: 11, color: "#A1A1AA" }}>{l}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Grid */}
+        <div style={{ overflow: "auto", touchAction: "none", paddingBottom: 4 }}>
+          <div style={{ display: "inline-block", userSelect: "none" }}>
+            {/* column header */}
+            <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
+              {letters.map((t2) => (
+                <button key={t2} data-testid={`subset-col-${t2}`}
+                  onClick={() => commitBulk(letters.every((t1) => isImpossible(t1, t2) || isBufferExcluded(t1, t2) || work[`${t1}:${t2}`]) ? "enable" : "disable", (a, b) => b === t2)}
+                  className="font-mono"
+                  style={{ width: cell, height: label, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+                  {t2.toUpperCase()}
+                </button>
+              ))}
+            </div>
+            {letters.map((t1) => (
+              <div key={t1} style={{ display: "flex", gap, marginBottom: gap, alignItems: "center" }}>
+                <button data-testid={`subset-row-${t1}`}
+                  onClick={() => commitBulk(letters.every((t2) => isImpossible(t1, t2) || isBufferExcluded(t1, t2) || work[`${t1}:${t2}`]) ? "enable" : "disable", (a) => a === t1)}
+                  className="font-mono"
+                  style={{ width: label, height: cell, marginRight: gap, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "right" }}>
+                  {t1.toUpperCase()}
+                </button>
+                {letters.map((t2) => {
+                  const st = stateOf(t1, t2);
+                  const isBuf = st === "bufferEnabled" || st === "bufferDisabled";
+                  const imp = st === "impossible";
+                  return (
+                    <div
+                      key={t2}
+                      data-testid={`subset-cell-${t1}-${t2}`}
+                      data-state={st}
+                      onPointerDown={(e) => { if (!imp) { e.preventDefault(); onCellDown(t1, t2); } }}
+                      onPointerEnter={() => onCellEnter(t1, t2)}
+                      title={`${t1.toUpperCase()}${t2.toUpperCase()}`}
+                      style={{
+                        width: cell, height: cell, borderRadius: 3, flex: "0 0 auto",
+                        background: SUBSET_COLORS[st],
+                        backgroundImage: isBuf ? STRIPES : "none",
+                        opacity: isBuf ? 0.42 : 1,
+                        border: imp ? "1px solid #2a2a2e" : "1px solid rgba(0,0,0,0.35)",
+                        cursor: imp ? "not-allowed" : "pointer",
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       </motion.div>
     </>,
@@ -618,7 +874,7 @@ function bufferOptions(scheme, type) {
   return Object.keys(type === "corner" ? maps.corner : maps.edge).sort();
 }
 
-function SettingsPanel({ settings, setSettings, resetStats }) {
+function SettingsPanel({ settings, setSettings, resetStats, onOpenSubset }) {
   const set = (k, v) => setSettings((s) => ({ ...s, [k]: v }));
   const changeScheme = (scheme) => {
     const s = SCHEMES[scheme] || SCHEMES.speffz;
@@ -643,6 +899,15 @@ function SettingsPanel({ settings, setSettings, resetStats }) {
       </Field>
       <Toggle label="Sound feedback" testid="sound-toggle" value={settings.sound} onChange={(v) => set("sound", v)} />
       <Toggle label="Show manual move buttons" testid="manual-toggle" value={settings.showManual} onChange={(v) => set("showManual", v)} />
+      <div>
+        <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA", display: "block", marginBottom: 8 }}>Case subset</span>
+        <button data-testid="open-subset-btn" onClick={onOpenSubset} style={{ ...moveBtn, width: "100%", padding: "11px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "var(--surface-2)" }}>
+          <Grid3X3 size={15} /> Select case subset (corners / edges)
+        </button>
+        <span className="font-mono" style={{ fontSize: 11, color: "#52525B", marginTop: 6, display: "block" }}>
+          Pick exactly which target pairs get drilled. All enabled by default.
+        </span>
+      </div>
       <Field label="Cube MAC address (GAN / MoYu / QiYi)">
         <input
           data-testid="settings-mac-input"
