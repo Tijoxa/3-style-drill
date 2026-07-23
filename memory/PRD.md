@@ -27,6 +27,7 @@ Build an app to drill 3x3 Rubik's cube 3-style (blind method) commutators with a
 - Fixed "cube solved unsolves" and "not responding to movements" via relative facelet tracking. [testing_agent iteration_2: 100%]
 - Added **Chichu (彳亍) Chinese lettering scheme** selectable alongside Speffz (scheme registry in cube.mjs; buffers reset per scheme; maps generated from BLDDB source, validated). [testing_agent iteration_3: 100%]
 - Made the app **GitHub Pages compatible**: vendored the smart-cube library into src/vendor, homepage:".", gh-pages script + GitHub Actions workflow; removed Emergent badge/analytics from index.html.
+- **Mobile responsive layout** (useIsMobile hook): header wraps so the corners/edges toggle gets its own full-width row (was clipped); HUD becomes 2 columns; MAC modal anchors to top (94vw, scrollable) so it fits + isn't covered by the keyboard; root scrolls on small screens. Verified visually via forced breakpoint; testing_agent unavailable (sustained infra timeouts).
 
 ## Backlog / next
 - P1: Per-case timing stats and slow-case review (like blindtrainer "slow cases").

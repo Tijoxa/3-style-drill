@@ -21,6 +21,15 @@ const today = () => new Date().toISOString().slice(0, 10);
 function loadJSON(key, fallback) {
   try { const v = JSON.parse(localStorage.getItem(key)); return v || fallback; } catch { return fallback; }
 }
+function useIsMobile(bp = 640) {
+  const [m, setM] = useState(typeof window !== "undefined" && window.innerWidth < bp);
+  useEffect(() => {
+    const on = () => setM(window.innerWidth < bp);
+    window.addEventListener("resize", on);
+    return () => window.removeEventListener("resize", on);
+  }, [bp]);
+  return m;
+}
 function beep(freq, ok) {
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -37,6 +46,7 @@ const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", 
 
 export default function App() {
   const [mode, setMode] = useState("corners");
+  const isMobile = useIsMobile();
   const [settings, setSettings] = useState(() => ({ ...defaultSettings, ...loadJSON(SETTINGS_KEY, {}) }));
   const [pair, setPair] = useState(null);
   const [highlights, setHighlights] = useState({});
@@ -244,12 +254,12 @@ export default function App() {
   const flashColor = flash === "ok" ? "var(--success)" : flash === "err" ? "var(--error)" : "#fff";
 
   return (
-    <div className="noise" style={{ height: "100vh", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden" }}>
+    <div className="noise" style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", position: "relative", overflowX: "hidden" }}>
       <Toaster theme="dark" position="top-center" richColors />
 
       {/* Top bar */}
-      <header style={{ position: "relative", zIndex: 2, display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 20px", borderBottom: "1px solid var(--line)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <header style={{ position: "relative", zIndex: 2, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", rowGap: 10, padding: isMobile ? "10px 12px" : "16px 20px", borderBottom: "1px solid var(--line)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, order: isMobile ? 1 : 0 }}>
           <button
             data-testid="bluetooth-connect-btn"
             onClick={handleConnect}
@@ -268,7 +278,7 @@ export default function App() {
         </div>
 
         {/* mode switcher */}
-        <div data-testid="mode-switcher" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden", background: "var(--surface)" }}>
+        <div data-testid="mode-switcher" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden", background: "var(--surface)", ...(isMobile ? { order: 3, flexBasis: "100%", justifyContent: "center" } : {}) }}>
           {["corners", "edges"].map((m) => (
             <button
               key={m}
@@ -276,7 +286,7 @@ export default function App() {
               onClick={() => setMode(m)}
               className="overline font-head"
               style={{
-                padding: "8px 18px", fontSize: 13, letterSpacing: "0.15em", cursor: "pointer",
+                padding: isMobile ? "10px 0" : "8px 18px", flex: isMobile ? 1 : "none", fontSize: 13, letterSpacing: "0.15em", cursor: "pointer",
                 background: mode === m ? "var(--surface-2)" : "transparent",
                 color: mode === m ? "#fff" : "#7a7a7a",
                 border: "none", boxShadow: mode === m ? "inset 0 0 0 1px var(--active)" : "none",
@@ -285,7 +295,7 @@ export default function App() {
           ))}
         </div>
 
-        <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, order: isMobile ? 2 : 0 }}>
           <button data-testid="open-stats-btn" onClick={() => setDrawer("stats")} style={iconBtn}><BarChart3 size={18} /></button>
           <button data-testid="open-settings-btn" onClick={() => setDrawer("settings")} style={iconBtn}><SettingsIcon size={18} /></button>
         </div>
@@ -335,7 +345,7 @@ export default function App() {
       )}
 
       {/* HUD */}
-      <div data-testid="live-session-hud" style={{ position: "relative", zIndex: 2, display: "grid", gridTemplateColumns: "repeat(5, 1fr)", borderTop: "1px solid var(--line)", background: "var(--bg)" }}>
+      <div data-testid="live-session-hud" style={{ position: "relative", zIndex: 2, display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(5, 1fr)", borderTop: "1px solid var(--line)", background: "var(--bg)" }}>
         <Stat label="Solved" value={session.solved} testid="hud-solved" />
         <Stat label="Streak" value={session.streak} accent="var(--success)" testid="hud-streak" />
         <Stat label="Best Streak" value={session.bestStreak} testid="hud-best-streak" />
@@ -376,6 +386,7 @@ export default function App() {
 }
 
 function MacModal({ deviceName, onSubmit, onSaveDefault }) {
+  const isMobile = useIsMobile();
   const [mac, setMac] = useState("");
   const [remember, setRemember] = useState(true);
   const valid = /^([0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}$/.test(mac.trim());
@@ -392,7 +403,7 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
         data-testid="mac-modal"
         initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
         transition={{ duration: 0.15 }}
-        style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 440, maxWidth: "92vw", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: 26, zIndex: 61 }}
+        style={{ position: "fixed", top: isMobile ? 12 : "50%", left: "50%", transform: isMobile ? "translateX(-50%)" : "translate(-50%,-50%)", width: isMobile ? "94vw" : 440, maxWidth: "94vw", maxHeight: "92dvh", overflowY: "auto", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 18 : 26, zIndex: 61 }}
       >
         <h2 className="font-head" style={{ fontSize: 26, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>Enter Cube MAC Address</h2>
         <p className="font-mono" style={{ color: "#A1A1AA", fontSize: 12.5, lineHeight: 1.7, marginTop: 10 }}>
@@ -414,7 +425,7 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
           <input data-testid="mac-remember" type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
           <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>Remember this MAC address</span>
         </label>
-        <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "flex-end", flexWrap: "wrap" }}>
           <button data-testid="mac-cancel-btn" onClick={() => onSubmit(null)} style={ghostBtn}>Cancel</button>
           <button data-testid="mac-submit-btn" onClick={submit} disabled={!valid}
             style={{ ...moveBtn, minWidth: 120, padding: "9px 18px", opacity: valid ? 1 : 0.4, background: "var(--active)", borderColor: "var(--active)" }}>
@@ -438,7 +449,7 @@ function RecognitionTimer({ caseStartRef, pairKey }) {
 
 function Stat({ label, value, accent, testid, small, last }) {
   return (
-    <div data-testid={testid} style={{ padding: "14px 18px", borderRight: last ? "none" : "1px solid var(--line)" }}>
+    <div data-testid={testid} style={{ padding: "14px 18px", borderRight: last ? "none" : "1px solid var(--line)", borderBottom: "1px solid var(--line)" }}>
       <div className="overline font-head" style={{ fontSize: 11, color: "#52525B" }}>{label}</div>
       <div className="font-mono" style={{ fontSize: small ? 18 : 26, fontWeight: 800, color: accent || "#fff", marginTop: 2 }}>{value}</div>
     </div>
