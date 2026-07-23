@@ -434,6 +434,11 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
           GAN / MoYu / QiYi cubes need it for decryption. Find it in your cube's official app
           (GAN: Cube Station → cube settings), then enter it below.
         </p>
+        <div className="font-mono" style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface-2)", fontSize: 12, lineHeight: 1.7, color: "#A1A1AA" }}>
+          <b style={{ color: "#fff" }}>Tip (Chrome/Edge):</b> open a new tab, go to{" "}
+          <code data-testid="mac-tip-url" style={{ userSelect: "all", color: "var(--active)", fontWeight: 700 }}>chrome://bluetooth-internals</code>,
+          open the <b style={{ color: "#fff" }}>Devices</b> tab, click <b style={{ color: "#fff" }}>Scan</b>, find your cube and read its <b style={{ color: "#fff" }}>Address</b>.
+        </div>
         <input
           data-testid="mac-input"
           autoFocus
@@ -640,6 +645,7 @@ function SettingsPanel({ settings, setSettings, resetStats }) {
         />
         <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
           Saved MAC is used automatically when connecting. Leave empty to auto-detect / be prompted.
+          Tip: on Chrome/Edge you can read it at <code style={{ userSelect: "all", color: "var(--active)" }}>chrome://bluetooth-internals</code> → Devices → Scan.
         </span>
       </Field>
       <button data-testid="reset-stats-btn" onClick={resetStats} style={{ ...ghostBtn, borderColor: "var(--error)", color: "var(--error)", justifyContent: "center", marginTop: 8 }}>Reset all statistics</button>
