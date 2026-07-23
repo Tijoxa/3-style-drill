@@ -1,0 +1,27 @@
+{
+  "summary": "Regression test post evictMoveBuffer local-resync fix. Verified move-processing/detection flow via window.__trainer/window.__cube debug hooks. All 4 required scenarios pass with zero console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Note (informational, not blocking): Real BLE evictMoveBuffer resync path cannot be exercised in automation without a physical GAN cube; code inspection matches described fix (moveBuffer cleared, lastSerial=serial, no conn.disconnect)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100%"},
+  "seed_data_creation": "None. Used window.__cube.SOLVED + applyMove to simulate facelet updates.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Frontend debug hooks window.__trainer {getState, getTarget, getSuccess, solveCurrent, feedFacelets, markSolved} and window.__cube {SOLVED, applyMove, applyAlg, scramble} are reliable for simulating BLE facelet events. testids used: recognition-timer (data-timer-state waiting|running), letter-pair-display. First feedFacelets(SOLVED) sets reference; subsequent feeds change getState relative to it.",
+  "test_results_detail": {
+    "test1_move_detection": "PASS — feedFacelets(SOLVED) => state==SOLVED, timer=waiting. feedFacelets(applyMove(SOLVED,'R')) => state changed, timer=running.",
+    "test2_solve_advances": "PASS — solveCurrent() incremented solved counter to 1, letter pair changed 'UR' -> 'KI', timer running.",
+    "test3_burst_15_moves": "PASS — 15 random face turns (U R F D L B) applied and fed; getState() matches simulated state, no uncaught errors, no error overlay, 0 console errors, 0 warnings.",
+    "test4_keyboard_moves": "PASS — pressing r/u/f changed state relative to SOLVED reference and timer moved to running with no console errors."
+  },
+  "rca of the issue": "N/A — regression pass; BLE-layer fix (evictMoveBuffer local resync replacing conn.disconnect) cannot be reproduced without physical hardware."
+}

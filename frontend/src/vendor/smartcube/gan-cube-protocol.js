@@ -264,6 +264,7 @@ class GanGen2ProtocolDriver {
             });
         }
         else if (eventType == 0x0D) { // DISCONNECT
+            console.warn("[smartcube] cube sent DISCONNECT event (Gen2 0x0D)");
             conn.disconnect();
         }
         return cubeEvents;
@@ -337,9 +338,14 @@ class GanGen3ProtocolDriver {
                 this.lastSerial = bufferHead.serial;
             }
         }
-        // Probably something went wrong and buffer is no longer evicted, so forcibly disconnect the cube
-        if (conn && this.moveBuffer.length > 16) {
-            conn.disconnect();
+        // Buffer can no longer be evicted (missing moves the cube can't replay). Instead of dropping
+        // the whole BLE connection (which surfaced as "cube disconnects on a turn"), resync locally:
+        // clear the stuck buffer and realign the serial. The next periodic FACELETS event re-establishes
+        // the authoritative cube state, so no moves are truly lost for detection.
+        if (this.moveBuffer.length > 16) {
+            console.warn("[smartcube] move buffer overflow — resyncing instead of disconnecting");
+            this.moveBuffer = [];
+            this.lastSerial = this.serial;
         }
         return evictedEvents;
     }
@@ -515,6 +521,7 @@ class GanGen3ProtocolDriver {
                 });
             }
             else if (eventType == 0x11) { // DISCONNECT
+                console.warn("[smartcube] cube sent DISCONNECT event (Gen3 0x11)");
                 conn.disconnect();
             }
         }
@@ -609,9 +616,14 @@ class GanGen4ProtocolDriver {
                 this.lastSerial = bufferHead.serial;
             }
         }
-        // Probably something went wrong and buffer is no longer evicted, so forcibly disconnect the cube
-        if (conn && this.moveBuffer.length > 16) {
-            conn.disconnect();
+        // Buffer can no longer be evicted (missing moves the cube can't replay). Instead of dropping
+        // the whole BLE connection (which surfaced as "cube disconnects on a turn"), resync locally:
+        // clear the stuck buffer and realign the serial. The next periodic FACELETS event re-establishes
+        // the authoritative cube state, so no moves are truly lost for detection.
+        if (this.moveBuffer.length > 16) {
+            console.warn("[smartcube] move buffer overflow — resyncing instead of disconnecting");
+            this.moveBuffer = [];
+            this.lastSerial = this.serial;
         }
         return evictedEvents;
     }
@@ -827,6 +839,7 @@ class GanGen4ProtocolDriver {
             });
         }
         else if (eventType == 0xEA) { // DISCONNECT
+            console.warn("[smartcube] cube sent DISCONNECT event (Gen4 0xEA)");
             conn.disconnect();
         }
         return cubeEvents;
