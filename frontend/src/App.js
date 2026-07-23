@@ -545,38 +545,79 @@ function SubsetModal({ settings, setSettings, onClose }) {
     });
   }, [prefix, setSettings]);
 
-  const paint = useRef({ active: false, mode: null });
+  const idxOf = useMemo(() => { const m = {}; letters.forEach((l, i) => { m[l] = i; }); return m; }, [letters]);
+  const [drag, setDrag] = useState(null); // { mode, r0, c0, r1, c1 }
+  const dragRef = useRef(null);
+  useEffect(() => { dragRef.current = drag; }, [drag]);
+
+  const isImpossible = useCallback((t1, t2) => t1 === t2 || pieceOf(t1) === pieceOf(t2), [pieceOf]);
+  const isBufferExcluded = useCallback((t1, t2) => pieceOf(t1) === bufPiece || pieceOf(t2) === bufPiece, [pieceOf, bufPiece]);
+
+  const inDragRect = useCallback((t1, t2) => {
+    const d = dragRef.current; if (!d) return false;
+    const r = idxOf[t1], c = idxOf[t2];
+    return r >= Math.min(d.r0, d.r1) && r <= Math.max(d.r0, d.r1) && c >= Math.min(d.c0, d.c1) && c <= Math.max(d.c0, d.c1);
+  }, [idxOf]);
+
+  const effDisabled = useCallback((t1, t2) => {
+    const d = dragRef.current;
+    if (d && inDragRect(t1, t2) && !isImpossible(t1, t2)) return d.mode === "disable";
+    return !!work[`${t1}:${t2}`];
+  }, [inDragRect, work, isImpossible]);
+
+  const startDrag = useCallback((t1, t2) => {
+    if (isImpossible(t1, t2)) return;
+    const mode = workRef.current[`${t1}:${t2}`] ? "enable" : "disable";
+    setDrag({ mode, r0: idxOf[t1], c0: idxOf[t2], r1: idxOf[t1], c1: idxOf[t2] });
+  }, [idxOf, isImpossible]);
+
+  const extendDrag = useCallback((t1, t2) => {
+    const r = idxOf[t1], c = idxOf[t2];
+    if (r == null || c == null) return;
+    setDrag((d) => (d && (d.r1 !== r || d.c1 !== c) ? { ...d, r1: r, c1: c } : d));
+  }, [idxOf]);
+
+  // Commit the rectangle to the working set on pointer release.
   useEffect(() => {
-    const up = () => { if (paint.current.active) { paint.current.active = false; commit(workRef.current); } };
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
-    return () => { window.removeEventListener("pointerup", up); window.removeEventListener("pointercancel", up); };
-  }, [commit]);
+    const finish = () => {
+      const d = dragRef.current; if (!d) return;
+      setWork((w) => {
+        const n = { ...w };
+        const rlo = Math.min(d.r0, d.r1), rhi = Math.max(d.r0, d.r1);
+        const clo = Math.min(d.c0, d.c1), chi = Math.max(d.c0, d.c1);
+        for (let r = rlo; r <= rhi; r++) for (let c = clo; c <= chi; c++) {
+          const t1 = letters[r], t2 = letters[c];
+          if (isImpossible(t1, t2)) continue;
+          const k = `${t1}:${t2}`;
+          if (d.mode === "disable") n[k] = true; else delete n[k];
+        }
+        commit(n);
+        return n;
+      });
+      setDrag(null);
+    };
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+    return () => { window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", finish); };
+  }, [commit, letters, isImpossible]);
+
+  // Touch/mouse: pointer capture blocks pointerenter on other cells, so track via elementFromPoint.
+  useEffect(() => {
+    const move = (e) => {
+      if (!dragRef.current) return;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const cellEl = el && el.closest ? el.closest("[data-subcell]") : null;
+      if (cellEl && cellEl.dataset.t1) extendDrag(cellEl.dataset.t1, cellEl.dataset.t2);
+    };
+    window.addEventListener("pointermove", move);
+    return () => window.removeEventListener("pointermove", move);
+  }, [extendDrag]);
+
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
-
-  const isImpossible = useCallback((t1, t2) => t1 === t2 || pieceOf(t1) === pieceOf(t2), [pieceOf]);
-  const isBufferExcluded = useCallback((t1, t2) => pieceOf(t1) === bufPiece || pieceOf(t2) === bufPiece, [pieceOf, bufPiece]);
-
-  const applyCell = (t1, t2, mode) => {
-    if (isImpossible(t1, t2)) return;
-    setWork((w) => {
-      const k = `${t1}:${t2}`;
-      if (mode === "disable") { if (w[k]) return w; return { ...w, [k]: true }; }
-      if (!w[k]) return w; const n = { ...w }; delete n[k]; return n;
-    });
-  };
-  const onCellDown = (t1, t2) => {
-    if (isImpossible(t1, t2)) return;
-    const currentlyDisabled = !!workRef.current[`${t1}:${t2}`];
-    const mode = currentlyDisabled ? "enable" : "disable";
-    paint.current = { active: true, mode };
-    applyCell(t1, t2, mode);
-  };
-  const onCellEnter = (t1, t2) => { if (paint.current.active) applyCell(t1, t2, paint.current.mode); };
 
   const setBulk = (mode, filter) => {
     setWork((w) => {
@@ -594,7 +635,7 @@ function SubsetModal({ settings, setSettings, onClose }) {
 
   const stateOf = (t1, t2) => {
     if (isImpossible(t1, t2)) return "impossible";
-    const disabled = !!work[`${t1}:${t2}`];
+    const disabled = effDisabled(t1, t2);
     if (isBufferExcluded(t1, t2)) return disabled ? "bufferDisabled" : "bufferEnabled";
     return disabled ? "disabled" : "enabled";
   };
@@ -604,7 +645,7 @@ function SubsetModal({ settings, setSettings, onClose }) {
   for (const t1 of letters) for (const t2 of letters) {
     if (isImpossible(t1, t2) || isBufferExcluded(t1, t2)) continue;
     total += 1;
-    if (!work[`${t1}:${t2}`]) active += 1;
+    if (!effDisabled(t1, t2)) active += 1;
   }
 
   const cell = isMobile ? 15 : 22;
@@ -706,8 +747,11 @@ function SubsetModal({ settings, setSettings, onClose }) {
                       key={t2}
                       data-testid={`subset-cell-${t1}-${t2}`}
                       data-state={st}
-                      onPointerDown={(e) => { if (!imp) { e.preventDefault(); onCellDown(t1, t2); } }}
-                      onPointerEnter={() => onCellEnter(t1, t2)}
+                      data-subcell="1"
+                      data-t1={t1}
+                      data-t2={t2}
+                      onPointerDown={(e) => { if (!imp) { e.preventDefault(); startDrag(t1, t2); } }}
+                      onPointerEnter={() => { if (!imp) extendDrag(t1, t2); }}
                       title={`${t1.toUpperCase()}${t2.toUpperCase()}`}
                       style={{
                         width: cell, height: cell, borderRadius: 3, flex: "0 0 auto",
