@@ -653,8 +653,8 @@ function SubsetModal({ settings, setSettings, onClose }) {
   const label = cell;
 
   const modalStyle = {
-    position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
-    width: "min(96vw, 860px)", maxHeight: "92dvh", overflow: "auto", boxSizing: "border-box",
+    width: "min(96vw, 640px)", maxWidth: "100%", maxHeight: "100%",
+    display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box",
   };
 
   const legend = [
@@ -670,12 +670,13 @@ function SubsetModal({ settings, setSettings, onClose }) {
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         onClick={onClose}
         style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 70 }} />
-      <motion.div
-        data-testid="subset-modal"
-        initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
-        transition={{ duration: 0.15 }}
-        style={{ ...modalStyle, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 14 : 22, zIndex: 71 }}
-      >
+      <div style={{ position: "fixed", inset: 0, zIndex: 71, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 12 : 28, pointerEvents: "none", boxSizing: "border-box" }}>
+        <motion.div
+          data-testid="subset-modal"
+          initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
+          transition={{ duration: 0.15 }}
+          style={{ ...modalStyle, pointerEvents: "auto", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 14 : 22 }}
+        >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <Grid3X3 size={20} style={{ color: "var(--active)" }} />
@@ -717,7 +718,7 @@ function SubsetModal({ settings, setSettings, onClose }) {
         </div>
 
         {/* Grid */}
-        <div style={{ overflow: "auto", touchAction: "none", paddingBottom: 4 }}>
+        <div style={{ flex: 1, minHeight: 0, overflow: "auto", touchAction: "none", paddingBottom: 4 }}>
           <div style={{ display: "inline-block", userSelect: "none" }}>
             {/* column header */}
             <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
@@ -769,6 +770,7 @@ function SubsetModal({ settings, setSettings, onClose }) {
           </div>
         </div>
       </motion.div>
+      </div>
     </>,
     document.body
   );
