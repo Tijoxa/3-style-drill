@@ -1,5 +1,6 @@
 import "./App.css";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
@@ -395,7 +396,10 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
     if (remember) onSaveDefault(clean);
     onSubmit(clean);
   };
-  return (
+  const modalStyle = isMobile
+    ? { position: "fixed", top: 12, left: 12, right: 12, width: "auto", maxHeight: "88dvh", overflowY: "auto", boxSizing: "border-box" }
+    : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 440, maxWidth: "94vw", maxHeight: "92dvh", overflowY: "auto", boxSizing: "border-box" };
+  return createPortal(
     <>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 60 }} />
@@ -403,7 +407,7 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
         data-testid="mac-modal"
         initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
         transition={{ duration: 0.15 }}
-        style={{ position: "fixed", top: isMobile ? 12 : "50%", left: "50%", transform: isMobile ? "translateX(-50%)" : "translate(-50%,-50%)", width: isMobile ? "94vw" : 440, maxWidth: "94vw", maxHeight: "92dvh", overflowY: "auto", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 18 : 26, zIndex: 61 }}
+        style={{ ...modalStyle, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 18 : 26, zIndex: 61 }}
       >
         <h2 className="font-head" style={{ fontSize: 26, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>Enter Cube MAC Address</h2>
         <p className="font-mono" style={{ color: "#A1A1AA", fontSize: 12.5, lineHeight: 1.7, marginTop: 10 }}>
@@ -433,7 +437,8 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
           </button>
         </div>
       </motion.div>
-    </>
+    </>,
+    document.body
   );
 }
 
@@ -492,7 +497,7 @@ function SettingsPanel({ settings, setSettings, resetStats }) {
           value={settings.macAddress || ""}
           onChange={(e) => set("macAddress", e.target.value)}
           placeholder="AA:BB:CC:DD:EE:FF (optional)"
-          style={{ ...selectStyle, letterSpacing: "0.06em" }}
+          style={{ ...selectStyle, width: "100%", boxSizing: "border-box", letterSpacing: "0.06em" }}
         />
         <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
           Saved MAC is used automatically when connecting. Leave empty to auto-detect / be prompted.
