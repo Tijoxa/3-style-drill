@@ -72,6 +72,7 @@ export default function App() {
   const targetRef = useRef(null);
   const caseStartRef = useRef(null);
   const caseStartedRef = useRef(false);
+  const noMoveTimeoutRef = useRef(null);
   const modeRef = useRef(mode);
   const settingsRef = useRef(settings);
   const busyRef = useRef(false);
@@ -80,7 +81,8 @@ export default function App() {
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
 
-  const buildCase = useCallback(() => {
+  const buildCase = useCallback((startImmediately = false) => {
+    if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
     const m = modeRef.current;
     const s = settingsRef.current;
     const maps = SCHEMES[s.scheme] || SCHEMES.speffz;
@@ -114,8 +116,19 @@ export default function App() {
       const target = apply3Cycle(cur, [buffer, t1, t2], type, maps);
       if (target !== cur) {
         targetRef.current = target;
-        caseStartRef.current = null;
-        caseStartedRef.current = false;
+        if (startImmediately) {
+          // After finishing a pair: timer runs right away (don't wait for first move).
+          caseStartedRef.current = true;
+          caseStartRef.current = Date.now();
+        } else {
+          // First load / mode switch: wait for the first move, but auto-start after 30s.
+          caseStartedRef.current = false;
+          caseStartRef.current = null;
+          noMoveTimeoutRef.current = setTimeout(() => {
+            if (!caseStartedRef.current) { caseStartedRef.current = true; caseStartRef.current = Date.now(); }
+            noMoveTimeoutRef.current = null;
+          }, 30000);
+        }
         setPair({ t1, t2, type });
         setHighlights({ bufferIdx: facelet(buffer, type, maps), t1Idx: facelet(t1, type, maps), t2Idx: facelet(t2, type, maps) });
         return;
@@ -151,7 +164,7 @@ export default function App() {
       return next;
     });
     setTimeout(() => setFlash(null), 180);
-    setTimeout(() => { buildCase(); busyRef.current = false; }, 60);
+    setTimeout(() => { buildCase(true); busyRef.current = false; }, 60);
   }, [buildCase]);
 
   const onStateChanged = useCallback((newState) => {
@@ -162,6 +175,7 @@ export default function App() {
     if (!caseStartedRef.current && !busyRef.current && newState !== prev) {
       caseStartedRef.current = true;
       caseStartRef.current = Date.now();
+      if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
     }
     if (targetRef.current && newState === targetRef.current) onSuccess();
   }, [onSuccess]);
