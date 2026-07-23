@@ -1,0 +1,29 @@
+{
+  "summary": "Regression testing of BLE disconnect-on-turn fix (protocol MOVE handler + try/catch in smartcube.js). Bluetooth path can't be exercised in-browser; used window.__trainer/__cube debug hooks. All 4 requested regression/stability tests passed with zero console errors and zero page errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_results": {
+    "test1_move_detection": "PASS — feedFacelets(SOLVED) sets reference (state==SOLVED). After feedFacelets(applyMove(SOLVED,'R')) state CHANGED and equals expected next state. Timer switched waiting -> running, counted up to 0.7s.",
+    "test2_solve_advances_pair": "PASS — solveCurrent() advanced pair KD -> IE, SOLVED counter=1, STREAK=1, timer immediately running for the new pair (0.4s).",
+    "test3_stability_10_moves": "PASS — 10 random-face moves fed sequentially (R,U,U,D,R,R,D,D,R,D). getState matched applied final state exactly. No error overlay, no uncaught page errors, no console error messages.",
+    "test4_keyboard_manual_moves": "PASS — pressing r/u/f changed cube state and kept the timer running (1.9s). No console errors."
+  },
+  "console_errors": 0,
+  "page_errors": 0,
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Real BLE disconnect-on-turn bug is only reproducible with a physical GAN cube; automated environment can only confirm app-boundary regression, which is clean.",
+    "src/lib/smartcube.js try/catch around events$ subscribe is a good defensive fix; consider logging the caught error to console.warn so future handler bugs are visible without breaking BLE."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "N/A (skipped)", "frontend": "100%"},
+  "seed_data_creation": "None",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "App is a React SPA at REACT_APP_BACKEND_URL (no backend). Debug hooks available: window.__trainer.{getState,getTarget,solveCurrent,feedFacelets,markSolved} and window.__cube.{SOLVED,applyMove,applyAlg,scramble}. First feedFacelets call sets the reference. Timer testid: recognition-timer with data-timer-state; letter pair testid: letter-pair-display."
+}

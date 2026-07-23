@@ -41,23 +41,28 @@ export async function connect(handlers, options = {}) {
   });
 
   sub = conn.events$.subscribe((event) => {
-    switch (event.type) {
-      case "MOVE": {
-        const move = normalizeMove(event);
-        if (move) handlers.onMove?.(move);
-        break;
+    try {
+      switch (event.type) {
+        case "MOVE": {
+          const move = normalizeMove(event);
+          if (move) handlers.onMove?.(move);
+          break;
+        }
+        case "FACELETS":
+          handlers.onFacelets?.(event.facelets);
+          break;
+        case "BATTERY":
+          handlers.onBattery?.(event.batteryLevel);
+          break;
+        case "DISCONNECT":
+          handlers.onDisconnect?.();
+          break;
+        default:
+          break;
       }
-      case "FACELETS":
-        handlers.onFacelets?.(event.facelets);
-        break;
-      case "BATTERY":
-        handlers.onBattery?.(event.batteryLevel);
-        break;
-      case "DISCONNECT":
-        handlers.onDisconnect?.();
-        break;
-      default:
-        break;
+    } catch (e) {
+      // Never let an app-side handler error propagate into the BLE stack (would drop the connection).
+      console.error("smartcube handler error", e);
     }
   });
 

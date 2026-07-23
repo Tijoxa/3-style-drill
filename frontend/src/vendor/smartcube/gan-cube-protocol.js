@@ -668,20 +668,12 @@ class GanGen4ProtocolDriver {
         var dataLength = msg.getBitWord(8, 8);
         if (eventType == 0x01) { // MOVE
             if (this.lastSerial != -1) { // Accept move events only after first facelets state event received
-                // One BLE notification may contain multiple MOVE chunks (72 bits each). Only reading the first
-                // chunk drops later face turns (common on slice moves) until MOVE_HISTORY catches up
-                const msgBitLen = eventMessage.length * 8;
-                let off = 0;
-                while (off + 72 <= msgBitLen && msg.getBitWord(off, 8) === 0x01) {
-                    let cubeTimestamp = msg.getBitWord(off + 16, 32, true);
-                    let serial = msg.getBitWord(off + 48, 16, true);
-                    this.serial = serial;
-                    let direction = msg.getBitWord(off + 64, 2);
-                    let face = [2, 32, 8, 1, 16, 4].indexOf(msg.getBitWord(off + 66, 6));
-                    let move = "URFDLB".charAt(face) + " '".charAt(direction);
-                    if (face < 0) {
-                        break;
-                    }
+                let cubeTimestamp = msg.getBitWord(16, 32, true);
+                let serial = this.serial = msg.getBitWord(48, 16, true);
+                let direction = msg.getBitWord(64, 2);
+                let face = [2, 32, 8, 1, 16, 4].indexOf(msg.getBitWord(66, 6));
+                let move = "URFDLB".charAt(face) + " '".charAt(direction);
+                if (face >= 0) {
                     this.moveBuffer.push({
                         type: "MOVE",
                         serial: serial,
@@ -693,7 +685,6 @@ class GanGen4ProtocolDriver {
                         move: move.trim()
                     });
                     this.lastLocalTimestamp = timestamp;
-                    off += 72;
                 }
                 // evict move events from FIFO buffer
                 cubeEvents = await this.evictMoveBuffer(conn);
