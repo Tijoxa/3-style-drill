@@ -44,7 +44,7 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: true, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare" };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare" };
 
 export default function App() {
   const [mode, setMode] = useState("corners");
@@ -254,7 +254,7 @@ export default function App() {
   const elapsedMin = (Date.now() - sessionStartRef.current) / 60000;
   const cpm = elapsedMin > 0.05 ? session.solved / elapsedMin : 0;
 
-  const pairText = pair ? `${pair.t1}${pair.t2}` : "--";
+  const pairText = pair ? `${pair.t1}${pair.t2}`.toUpperCase() : "--";
   const flashColor = flash === "ok" ? "var(--success)" : flash === "err" ? "var(--error)" : "#fff";
 
   return (
@@ -308,7 +308,7 @@ export default function App() {
       {/* Center */}
       <main style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, padding: 20 }}>
         <div className="overline" style={{ color: "#52525B", fontSize: 12 }}>
-          {mode === "corners" ? "CORNER 3-STYLE" : "EDGE 3-STYLE"} · BUFFER {mode === "corners" ? settings.cornerBuffer : settings.edgeBuffer} · {(SCHEMES[settings.scheme] || SCHEMES.speffz).name}
+          {mode === "corners" ? "CORNER 3-STYLE" : "EDGE 3-STYLE"} · BUFFER {(mode === "corners" ? settings.cornerBuffer : settings.edgeBuffer).toUpperCase()} · {(SCHEMES[settings.scheme] || SCHEMES.speffz).name}
         </div>
 
         <AnimatePresence mode="popLayout">
@@ -630,7 +630,7 @@ function SettingsPanel({ settings, setSettings, resetStats }) {
       </Field>
       <Field label="Edge buffer">
         <select data-testid="edge-buffer-select" value={settings.edgeBuffer} onChange={(e) => set("edgeBuffer", e.target.value)} style={selectStyle}>
-          {bufferOptions(settings.scheme, "edge").map((l) => <option key={l} value={l}>{l}</option>)}
+          {bufferOptions(settings.scheme, "edge").map((l) => <option key={l} value={l}>{l.toUpperCase()}</option>)}
         </select>
       </Field>
       <Toggle label="Sound feedback" testid="sound-toggle" value={settings.sound} onChange={(v) => set("sound", v)} />
