@@ -49,6 +49,10 @@ body {
 }
 .popok { animation: popok 0.16s ease; }
 
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { animation: spin 0.9s linear infinite; }
+
+
 ::selection { background: var(--active); color: #fff; }
 
 @layer base {

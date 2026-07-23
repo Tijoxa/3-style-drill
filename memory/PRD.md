@@ -28,9 +28,12 @@ Build an app to drill 3x3 Rubik's cube 3-style (blind method) commutators with a
 - Added **Chichu (彳亍) Chinese lettering scheme** selectable alongside Speffz (scheme registry in cube.mjs; buffers reset per scheme; maps generated from BLDDB source, validated). [testing_agent iteration_3: 100%]
 - Made the app **GitHub Pages compatible**: vendored the smart-cube library into src/vendor, homepage:".", gh-pages script + GitHub Actions workflow; removed Emergent badge/analytics from index.html.
 - **Mobile responsive layout** (useIsMobile hook): header wraps so the corners/edges toggle gets its own full-width row (was clipped); HUD becomes 2 columns; MAC modal anchors to top (94vw, scrollable) so it fits + isn't covered by the keyboard; root scrolls on small screens. Verified visually via forced breakpoint; testing_agent unavailable (sustained infra timeouts).
+- **Hint button (live blddb.net algorithms)** [2026-06]: "Hint (H)" button + Escape/keyboard shortcut opens a portal modal showing the 3-style algorithms for the current pair, fetched LIVE from blddb.net (CORS `*`), cached in localStorage as offline fallback. Algorithm-style selector persisted per type (corners: Nightmare/Balance/Yuanzi/Manmade; edges: Nightmare/Manmade), default Nightmare. Shows the recommended alg large + full expandable list, each with commutator notation (commutator solver vendored from blddb `commutator.js`). Manmade entries list source counts.
+  - Mapping: blddb internal "code" letters == the app's Chichu letters (uppercased). `blddbCode(letter,type,maps)` in cube.mjs converts any scheme (Speffz/Chichu) letter -> facelet idx -> blddb code. Key = code(buffer)+code(t1)+code(t2) -> `*AlgToStandard[key]` -> `*AlgToInfo*[std]` (list) + `*AlgTo{Style}[std]` (recommended).
+  - Verified offline (slice/rotation-aware engine): corner buf J = 378/378 ok, edge buf a = 440/440 ok (misses = same-piece invalid combos); + in-app spot checks Speffz VD (JXA) and qp (AFR) solve exactly. New files: `src/lib/blddb.js`, `src/lib/commutator.js`.
 
 ## Backlog / next
-- P1: Per-case timing stats and slow-case review (like blindtrainer "slow cases").
+- P1: Per-case timing stats and slow-case review (like blddb/blindtrainer "slow cases").
 - P1: Add flips/twists/parity and wings/x-centers/midges categories (big cube 3-style).
 - P2: Auto-request facelets after each move for GAN to improve mid-solve accuracy; whole-cube-rotation (x/y/z) handling.
 - P2: Chrome experimental-flag hint for automatic MAC detection.

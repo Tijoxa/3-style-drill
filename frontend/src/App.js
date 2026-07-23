@@ -5,12 +5,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
   Bluetooth, BluetoothConnected, Settings as SettingsIcon, BarChart3,
-  X, RotateCcw, SkipForward, Keyboard, BatteryMedium,
+  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2,
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
+import { fetchHints, STYLE_OPTIONS } from "./lib/blddb";
 import CubeNet from "./components/CubeNet";
 
 const STATS_KEY = "bld3style_stats_v1";
@@ -43,7 +44,7 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: true, macAddress: "" };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: true, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare" };
 
 export default function App() {
   const [mode, setMode] = useState("corners");
@@ -58,6 +59,7 @@ export default function App() {
   const [battery, setBattery] = useState(null);
   const [drawer, setDrawer] = useState(null); // 'settings' | 'stats' | null
   const [macPrompt, setMacPrompt] = useState(null); // { deviceName, resolve } | null
+  const [hintOpen, setHintOpen] = useState(false);
   const [lifetime, setLifetime] = useState(() => loadJSON(STATS_KEY, { totalCases: 0, totalTimeMs: 0, bestStreak: 0, perDay: {} }));
 
   const [session, setSession] = useState({ solved: 0, streak: 0, bestStreak: 0, times: [] });
@@ -188,16 +190,17 @@ export default function App() {
   // keyboard controls
   useEffect(() => {
     const handler = (e) => {
-      if (drawer) return;
+      if (drawer || hintOpen) return;
       const k = e.key;
       if (k === " ") { e.preventDefault(); skipCase(); return; }
+      if (k.toLowerCase() === "h") { e.preventDefault(); setHintOpen(true); return; }
       const map = { u: "U", r: "R", f: "F", d: "D", l: "L", b: "B" };
       const face = map[k.toLowerCase()];
       if (face) { e.preventDefault(); doMove(e.shiftKey ? face + "'" : face); }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [doMove, skipCase, drawer]);
+  }, [doMove, skipCase, drawer, hintOpen]);
 
   const handleConnect = useCallback(async () => {
     if (btStatus === "connected") { await btDisconnect(); setBtStatus("disconnected"); setCubeName(""); setBattery(null); return; }
@@ -326,8 +329,9 @@ export default function App() {
 
         <CubeNet state={netState} highlights={highlights} />
 
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
           <button data-testid="skip-btn" onClick={skipCase} style={ghostBtn}><SkipForward size={15} /> Skip (Space)</button>
+          <button data-testid="hint-btn" onClick={() => setHintOpen(true)} style={{ ...ghostBtn, borderColor: "var(--active)", color: "#fff" }}><Lightbulb size={15} /> Hint (H)</button>
           <button data-testid="reset-cube-btn" onClick={resetCube} style={ghostBtn}><RotateCcw size={15} /> Cube Solved</button>
         </div>
       </main>
@@ -380,6 +384,21 @@ export default function App() {
       <AnimatePresence>
         {macPrompt && (
           <MacModal deviceName={macPrompt.deviceName} onSubmit={submitMac} onSaveDefault={(mac) => setSettings((s) => ({ ...s, macAddress: mac }))} />
+        )}
+      </AnimatePresence>
+
+      {/* Hint modal (blddb.net algorithms) */}
+      <AnimatePresence>
+        {hintOpen && pair && (
+          <HintModal
+            pair={pair}
+            pairText={pairText}
+            buffer={mode === "corners" ? settings.cornerBuffer : settings.edgeBuffer}
+            maps={SCHEMES[settings.scheme] || SCHEMES.speffz}
+            style={pair.type === "corner" ? settings.cornerStyle : settings.edgeStyle}
+            setStyle={(v) => setSettings((s) => (pair.type === "corner" ? { ...s, cornerStyle: v } : { ...s, edgeStyle: v }))}
+            onClose={() => setHintOpen(false)}
+          />
         )}
       </AnimatePresence>
     </div>
@@ -436,6 +455,126 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
             Connect
           </button>
         </div>
+      </motion.div>
+    </>,
+    document.body
+  );
+}
+
+function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
+  const isMobile = useIsMobile();
+  const [state, setState] = useState({ loading: true, error: null, data: null });
+  const [showAll, setShowAll] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ loading: true, error: null, data: null });
+    setShowAll(false);
+    fetchHints({ type: pair.type, buffer, t1: pair.t1, t2: pair.t2, style, maps })
+      .then((data) => { if (!cancelled) setState({ loading: false, error: null, data }); })
+      .catch((e) => { if (!cancelled) setState({ loading: false, error: e.message || String(e), data: null }); });
+    return () => { cancelled = true; };
+  }, [pair.type, pair.t1, pair.t2, buffer, style, maps]);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const options = STYLE_OPTIONS[pair.type] || STYLE_OPTIONS.corner;
+  const blddbUrl = pair.type === "corner" ? "https://blddb.net/corner.html" : "https://blddb.net/edge.html";
+  const { loading, error, data } = state;
+  const list = data && data.list ? data.list : [];
+  const recAlg = data && data.recommended;
+  const recComm = data && data.recCommutator;
+  const rest = list.filter((a) => a.alg !== recAlg);
+
+  const modalStyle = isMobile
+    ? { position: "fixed", top: 12, left: 12, right: 12, width: "auto", maxHeight: "88dvh", overflowY: "auto", boxSizing: "border-box" }
+    : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 520, maxWidth: "94vw", maxHeight: "88dvh", overflowY: "auto", boxSizing: "border-box" };
+
+  return createPortal(
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        onClick={onClose}
+        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 60 }} />
+      <motion.div
+        data-testid="hint-modal"
+        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.15 }}
+        style={{ ...modalStyle, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 18 : 24, zIndex: 61 }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <Lightbulb size={20} style={{ color: "var(--active)" }} />
+            <h2 className="font-head" style={{ fontSize: 24, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>
+              Hint · <span data-testid="hint-pair" className="font-mono">{pairText}</span>
+            </h2>
+          </div>
+          <button data-testid="hint-close-btn" onClick={onClose} style={iconBtn}><X size={18} /></button>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+          <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA" }}>Algorithm style</span>
+          <select data-testid="hint-style-select" value={style} onChange={(e) => setStyle(e.target.value)} style={{ ...selectStyle, minWidth: 160 }}>
+            {options.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+          </select>
+        </div>
+
+        <div style={{ marginTop: 18, minHeight: 80 }}>
+          {loading && (
+            <div data-testid="hint-loading" className="font-mono" style={{ display: "flex", alignItems: "center", gap: 10, color: "#A1A1AA", fontSize: 13, padding: "20px 0" }}>
+              <Loader2 size={16} className="spin" /> Loading algorithms from blddb.net…
+            </div>
+          )}
+          {!loading && error && (
+            <div data-testid="hint-error" className="font-mono" style={{ color: "var(--error)", fontSize: 13, lineHeight: 1.6 }}>
+              Couldn't reach blddb.net ({error}). Check your connection and try again.
+            </div>
+          )}
+          {!loading && !error && data && data.notFound && (
+            <div data-testid="hint-notfound" className="font-mono" style={{ color: "#A1A1AA", fontSize: 13, lineHeight: 1.6 }}>
+              No algorithm found in blddb for this case{data.key ? ` (${data.key})` : ""}. It may be a same-piece or unsupported case.
+            </div>
+          )}
+          {!loading && !error && data && !data.notFound && (
+            <>
+              {recAlg && (
+                <div data-testid="hint-recommended" style={{ border: "1px solid var(--active)", borderRadius: 12, padding: 16, background: "var(--surface-2)" }}>
+                  <div className="overline font-head" style={{ fontSize: 10, color: "var(--active)", marginBottom: 8 }}>Recommended · {(options.find((o) => o[0] === style) || [])[1]}</div>
+                  <div className="font-mono" data-testid="hint-rec-alg" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.02em", wordBreak: "break-word" }}>{recAlg}</div>
+                  {recComm && <div className="font-mono" data-testid="hint-rec-comm" style={{ fontSize: 13, color: "#A1A1AA", marginTop: 8 }}>{recComm}</div>}
+                </div>
+              )}
+
+              {rest.length > 0 && (
+                <div style={{ marginTop: 14 }}>
+                  <button data-testid="hint-toggle-all" onClick={() => setShowAll((v) => !v)} style={{ ...ghostBtn, fontSize: 12 }}>
+                    {showAll ? "Hide" : "Show"} all {list.length} algorithms
+                  </button>
+                  {showAll && (
+                    <div data-testid="hint-all-list" style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                      {rest.map((a, i) => (
+                        <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "var(--bg)" }}>
+                          <div className="font-mono" style={{ fontSize: 14, fontWeight: 700, wordBreak: "break-word" }}>{a.alg}</div>
+                          {a.commutator && <div className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", marginTop: 4 }}>{a.commutator}</div>}
+                          {a.sources && a.sources.length > 0 && <div className="font-mono" style={{ fontSize: 10, color: "#52525B", marginTop: 4 }}>{a.sources.length} source{a.sources.length > 1 ? "s" : ""}</div>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <a data-testid="hint-blddb-link" href={blddbUrl} target="_blank" rel="noreferrer"
+          className="font-mono"
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 18, fontSize: 12, color: "#A1A1AA", textDecoration: "none" }}>
+          <ExternalLink size={13} /> Data from blddb.net (live)
+        </a>
       </motion.div>
     </>,
     document.body

@@ -122,6 +122,17 @@ export const SCHEMES = {
   },
 };
 
+// --- BLDDB code mapping: blddb's internal code letters ARE the Chichu letters (uppercased). ---
+const CHICHU_CORNER_BY_IDX = {}; Object.entries(CHICHU_CORNER_LETTERS).forEach(([l, i]) => { CHICHU_CORNER_BY_IDX[i] = l; });
+const CHICHU_EDGE_BY_IDX = {}; Object.entries(CHICHU_EDGE_LETTERS).forEach(([l, i]) => { CHICHU_EDGE_BY_IDX[i] = l; });
+// Convert a scheme letter (Speffz/Chichu) to the BLDDB code letter for the same sticker.
+export function blddbCode(letter, type, maps = SCHEMES.speffz) {
+  const idx = (type === "corner" ? maps.corner : maps.edge)[letter];
+  if (idx == null) return null;
+  const l = (type === "corner" ? CHICHU_CORNER_BY_IDX : CHICHU_EDGE_BY_IDX)[idx];
+  return l ? l.toUpperCase() : null;
+}
+
 // Group facelets into pieces by cubie position; corners have no zero coord, edges one zero.
 function isCorner(pos) { return pos.every(c => c !== 0); }
 function pieceKey(pos) { return pos.join(","); }
