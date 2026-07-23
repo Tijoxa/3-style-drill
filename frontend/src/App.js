@@ -123,16 +123,16 @@ export default function App() {
           // After finishing a pair: timer runs right away (don't wait for first move).
           caseStartedRef.current = true;
           caseStartRef.current = Date.now();
+          // Stop (freeze) the chrono if no move is made for 30s while it's running.
+          noMoveTimeoutRef.current = setTimeout(() => {
+            caseStoppedRef.current = caseStartRef.current ? Date.now() - caseStartRef.current : 0;
+            noMoveTimeoutRef.current = null;
+          }, 30000);
         } else {
-          // First load / mode switch / skip: wait for the first move.
+          // First load / mode switch / skip: wait for the first move (which always starts the timer).
           caseStartedRef.current = false;
           caseStartRef.current = null;
         }
-        // Stop (freeze) the chrono if no move is made for 30s.
-        noMoveTimeoutRef.current = setTimeout(() => {
-          caseStoppedRef.current = (caseStartedRef.current && caseStartRef.current) ? Date.now() - caseStartRef.current : 0;
-          noMoveTimeoutRef.current = null;
-        }, 30000);
         setPair({ t1, t2, type });
         setHighlights({ bufferIdx: facelet(buffer, type, maps), t1Idx: facelet(t1, type, maps), t2Idx: facelet(t2, type, maps) });
         return;
