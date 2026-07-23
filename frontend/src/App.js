@@ -72,6 +72,7 @@ export default function App() {
   const targetRef = useRef(null);
   const caseStartRef = useRef(null);
   const caseStartedRef = useRef(false);
+  const caseStoppedRef = useRef(null);
   const noMoveTimeoutRef = useRef(null);
   const modeRef = useRef(mode);
   const settingsRef = useRef(settings);
@@ -106,6 +107,7 @@ export default function App() {
       targetRef.current = null;
       caseStartRef.current = null;
       caseStartedRef.current = false;
+      caseStoppedRef.current = null;
       setPair(null);
       setHighlights({});
       return;
@@ -116,19 +118,21 @@ export default function App() {
       const target = apply3Cycle(cur, [buffer, t1, t2], type, maps);
       if (target !== cur) {
         targetRef.current = target;
+        caseStoppedRef.current = null;
         if (startImmediately) {
           // After finishing a pair: timer runs right away (don't wait for first move).
           caseStartedRef.current = true;
           caseStartRef.current = Date.now();
         } else {
-          // First load / mode switch: wait for the first move, but auto-start after 30s.
+          // First load / mode switch / skip: wait for the first move.
           caseStartedRef.current = false;
           caseStartRef.current = null;
-          noMoveTimeoutRef.current = setTimeout(() => {
-            if (!caseStartedRef.current) { caseStartedRef.current = true; caseStartRef.current = Date.now(); }
-            noMoveTimeoutRef.current = null;
-          }, 30000);
         }
+        // Stop (freeze) the chrono if no move is made for 30s.
+        noMoveTimeoutRef.current = setTimeout(() => {
+          caseStoppedRef.current = (caseStartedRef.current && caseStartRef.current) ? Date.now() - caseStartRef.current : 0;
+          noMoveTimeoutRef.current = null;
+        }, 30000);
         setPair({ t1, t2, type });
         setHighlights({ bufferIdx: facelet(buffer, type, maps), t1Idx: facelet(t1, type, maps), t2Idx: facelet(t2, type, maps) });
         return;
@@ -139,7 +143,7 @@ export default function App() {
   const onSuccess = useCallback(() => {
     if (busyRef.current) return;
     busyRef.current = true;
-    const elapsed = caseStartRef.current ? Date.now() - caseStartRef.current : 0;
+    const elapsed = caseStoppedRef.current != null ? caseStoppedRef.current : (caseStartRef.current ? Date.now() - caseStartRef.current : 0);
     if (settingsRef.current.sound) beep(880, true);
     setFlash("ok");
     const newStreak = streakRef.current + 1;
@@ -171,11 +175,13 @@ export default function App() {
     const prev = cubeStateRef.current;
     cubeStateRef.current = newState;
     setNetState(newState);
-    // Start the recognition/execution timer on the first actual move of the case.
-    if (!caseStartedRef.current && !busyRef.current && newState !== prev) {
-      caseStartedRef.current = true;
-      caseStartRef.current = Date.now();
+    // A real move: cancel the inactivity timeout; start the timer if it was waiting.
+    if (newState !== prev && !busyRef.current) {
       if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
+      if (!caseStartedRef.current && caseStoppedRef.current == null) {
+        caseStartedRef.current = true;
+        caseStartRef.current = Date.now();
+      }
     }
     if (targetRef.current && newState === targetRef.current) onSuccess();
   }, [onSuccess]);
@@ -365,7 +371,7 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
 
-        <RecognitionTimer caseStartRef={caseStartRef} pairKey={pairText} />
+        <RecognitionTimer caseStartRef={caseStartRef} caseStoppedRef={caseStoppedRef} pairKey={pairText} />
 
         <CubeNet state={netState} highlights={highlights} />
 
@@ -917,14 +923,22 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
   );
 }
 
-function RecognitionTimer({ caseStartRef, pairKey }) {
-  const [ms, setMs] = useState(0);
+function RecognitionTimer({ caseStartRef, caseStoppedRef, pairKey }) {
+  const [, force] = useState(0);
   useEffect(() => {
-    setMs(0);
-    const id = setInterval(() => setMs(caseStartRef.current ? Date.now() - caseStartRef.current : 0), 100);
+    const id = setInterval(() => force((v) => v + 1), 100);
     return () => clearInterval(id);
-  }, [pairKey, caseStartRef]);
-  return <div data-testid="recognition-timer" className="font-mono" style={{ color: "#52525B", fontSize: 14 }}>{(ms / 1000).toFixed(1)}s</div>;
+  }, [pairKey]);
+  let ms = 0, running = false;
+  if (caseStoppedRef.current != null) { ms = caseStoppedRef.current; }
+  else if (caseStartRef.current != null) { ms = Date.now() - caseStartRef.current; running = true; }
+  // Greyed when waiting for the first move or stopped; brighter while actively running.
+  return (
+    <div data-testid="recognition-timer" data-timer-state={caseStoppedRef.current != null ? "stopped" : running ? "running" : "waiting"}
+      className="font-mono" style={{ color: running ? "#D4D4D8" : "#52525B", fontSize: 14, transition: "color 150ms ease" }}>
+      {(ms / 1000).toFixed(1)}s
+    </div>
+  );
 }
 
 function Stat({ label, value, accent, testid, small, last }) {
