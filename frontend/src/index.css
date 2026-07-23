@@ -22,6 +22,24 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Themed scrollbars (dark) — global + explicit .theme-scroll for portalled modals */
+* { scrollbar-width: thin; scrollbar-color: #3f3f46 transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: #52525b; background-clip: padding-box; }
+.theme-scroll { scrollbar-width: thin; scrollbar-color: #3f3f46 transparent; }
+.theme-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.theme-scroll::-webkit-scrollbar-track { background: transparent; }
+.theme-scroll::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+.theme-scroll::-webkit-scrollbar-thumb:hover { background: #52525b; background-clip: padding-box; }
+
+
 .font-head { font-family: 'Barlow Condensed', sans-serif; }
 .font-mono { font-family: 'JetBrains Mono', monospace; }
 

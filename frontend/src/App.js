@@ -832,20 +832,23 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
   const recComm = data && data.recCommutator;
   const rest = list.filter((a) => a.alg !== recAlg);
 
-  const modalStyle = isMobile
-    ? { position: "fixed", top: 12, left: 12, right: 12, width: "auto", maxHeight: "88dvh", overflowY: "auto", boxSizing: "border-box" }
-    : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 520, maxWidth: "94vw", maxHeight: "88dvh", overflowY: "auto", boxSizing: "border-box" };
+  const modalStyle = {
+    width: isMobile ? "min(94vw, 520px)" : 520, maxWidth: "100%", maxHeight: "100%",
+    display: "block", overflowY: "auto", overflowX: "hidden", boxSizing: "border-box",
+  };
 
   return createPortal(
     <>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         onClick={onClose}
         style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 60 }} />
+      <div style={{ position: "fixed", inset: 0, zIndex: 61, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 12 : 24, pointerEvents: "none", boxSizing: "border-box" }}>
       <motion.div
         data-testid="hint-modal"
         initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
         transition={{ duration: 0.15 }}
-        style={{ ...modalStyle, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 18 : 24, zIndex: 61 }}
+        className="theme-scroll"
+        style={{ ...modalStyle, pointerEvents: "auto", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 18 : 24 }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -918,6 +921,7 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
           <ExternalLink size={13} /> Data from blddb.net (live)
         </a>
       </motion.div>
+      </div>
     </>,
     document.body
   );
