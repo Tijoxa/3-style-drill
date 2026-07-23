@@ -659,7 +659,7 @@ function SubsetModal({ settings, setSettings, onClose }) {
 
   const modalStyle = {
     width: "min(96vw, 640px)", maxWidth: "100%", maxHeight: "100%",
-    display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", boxSizing: "border-box",
+    display: "block", overflowY: "auto", overflowX: "hidden", boxSizing: "border-box",
   };
 
   const legend = [
@@ -702,18 +702,10 @@ function SubsetModal({ settings, setSettings, onClose }) {
           <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
             buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} cases active
           </span>
-          <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexWrap: "wrap" }}>
-            <button data-testid="subset-enable-all" onClick={() => commitBulk("enable")} style={{ ...ghostBtn, fontSize: 12 }}>Enable all</button>
-            <button data-testid="subset-disable-all" onClick={() => commitBulk("disable")} style={{ ...ghostBtn, fontSize: 12 }}>Disable all</button>
-          </div>
         </div>
 
-        <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 10, lineHeight: 1.6 }}>
-          Row = first target, column = second target (buffer → row → column). Click or drag to paint (drag a diagonal to select a rectangle). Click a row/column label to toggle a whole line.
-        </p>
-
         {/* Grid */}
-        <div style={{ overflowX: "hidden", touchAction: "none", paddingBottom: 4, marginTop: 12 }}>
+        <div style={{ overflowX: "hidden", touchAction: isMobile ? "pan-y" : "none", paddingBottom: 4, marginTop: 14 }}>
           <div style={{ display: "inline-block", userSelect: "none" }}>
             {/* column header */}
             <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
@@ -765,8 +757,18 @@ function SubsetModal({ settings, setSettings, onClose }) {
           </div>
         </div>
 
+        {/* Controls + instructions + legend (below grid) */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+          <button data-testid="subset-enable-all" onClick={() => commitBulk("enable")} style={{ ...ghostBtn, fontSize: 12, flex: "1 1 120px", justifyContent: "center" }}>Enable all</button>
+          <button data-testid="subset-disable-all" onClick={() => commitBulk("disable")} style={{ ...ghostBtn, fontSize: 12, flex: "1 1 120px", justifyContent: "center" }}>Disable all</button>
+        </div>
+
+        <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 12, lineHeight: 1.6 }}>
+          Row = first target, column = second target (buffer → row → column). Click or drag to paint (drag a diagonal to select a rectangle). Click a row/column label to toggle a whole line.
+        </p>
+
         {/* Legend (below grid) */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 14 }}>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
           {legend.map(([k, l]) => (
             <div key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={{ width: 14, height: 14, borderRadius: 3, background: SUBSET_COLORS[k], opacity: k.startsWith("buffer") ? 0.4 : 1, backgroundImage: k.startsWith("buffer") ? STRIPES : "none", border: k === "impossible" ? "1px solid #2a2a2e" : "none", display: "inline-block", flex: "0 0 auto" }} />
