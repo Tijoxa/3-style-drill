@@ -1,6 +1,6 @@
 /* Minimal PWA service worker: makes the app installable + offline-capable.
    Stale-while-revalidate for same-origin GET requests. */
-const CACHE = "bld3style-v1";
+const CACHE = "bld3style-v2";
 
 self.addEventListener("install", () => {
   self.skipWaiting();

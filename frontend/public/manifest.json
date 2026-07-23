@@ -1,6 +1,6 @@
 {
-  "short_name": "3-Style",
-  "name": "3-Style Trainer",
+  "short_name": "3-Style Drill",
+  "name": "3-Style Drill",
   "description": "Drill Rubik's cube blind 3-style commutators with a connected smart cube.",
   "icons": [
     { "src": "favicon.png", "sizes": "64x64", "type": "image/png" },

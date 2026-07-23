@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
   Bluetooth, BluetoothConnected, Settings as SettingsIcon, BarChart3,
-  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3,
+  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github,
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
@@ -969,6 +969,13 @@ function SettingsPanel({ settings, setSettings, resetStats, onOpenSubset }) {
       <p className="font-mono" style={{ color: "#52525B", fontSize: 12, lineHeight: 1.6 }}>
         Execute the commutator for the shown pair on your cube. When the cube reaches the resulting state, the next pair appears automatically. No cube? Use the manual move buttons or keyboard (U R F D L B, hold Shift for prime).
       </p>
+      <a data-testid="github-link" href="https://github.com/Tijoxa/3-style-drill" target="_blank" rel="noreferrer"
+        title="View source on GitHub"
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#52525B", textDecoration: "none", marginTop: 4, fontSize: 11, fontFamily: "'JetBrains Mono', monospace", alignSelf: "flex-start", transition: "color 120ms ease" }}
+        onMouseEnter={(e) => { e.currentTarget.style.color = "#A1A1AA"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.color = "#52525B"; }}>
+        <Github size={14} /> Source on GitHub
+      </a>
     </div>
   );
 }
