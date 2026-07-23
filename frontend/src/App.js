@@ -648,13 +648,18 @@ function SubsetModal({ settings, setSettings, onClose }) {
     if (!effDisabled(t1, t2)) active += 1;
   }
 
-  const cell = isMobile ? 15 : 22;
-  const gap = 2;
+  const gap = isMobile ? 1 : 2;
+  const pad = isMobile ? 12 : 22;
+  const containerPad = isMobile ? 10 : 28;
+  const vw = typeof window !== "undefined" ? window.innerWidth : 390;
+  const modalOuter = Math.min(vw * 0.96, 640, vw - 2 * containerPad);
+  const avail = modalOuter - 2 * pad;
+  const cell = Math.max(10, Math.min(isMobile ? 999 : 22, Math.floor(avail / 25 - gap)));
   const label = cell;
 
   const modalStyle = {
     width: "min(96vw, 640px)", maxWidth: "100%", maxHeight: "100%",
-    display: "flex", flexDirection: "column", overflow: "hidden", boxSizing: "border-box",
+    display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", boxSizing: "border-box",
   };
 
   const legend = [
@@ -670,12 +675,12 @@ function SubsetModal({ settings, setSettings, onClose }) {
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         onClick={onClose}
         style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 70 }} />
-      <div style={{ position: "fixed", inset: 0, zIndex: 71, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 12 : 28, pointerEvents: "none", boxSizing: "border-box" }}>
+      <div style={{ position: "fixed", inset: 0, zIndex: 71, display: "flex", alignItems: "center", justifyContent: "center", padding: containerPad, pointerEvents: "none", boxSizing: "border-box" }}>
         <motion.div
           data-testid="subset-modal"
           initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
           transition={{ duration: 0.15 }}
-          style={{ ...modalStyle, pointerEvents: "auto", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 14 : 22 }}
+          style={{ ...modalStyle, pointerEvents: "auto", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: pad }}
         >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -704,21 +709,11 @@ function SubsetModal({ settings, setSettings, onClose }) {
         </div>
 
         <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 10, lineHeight: 1.6 }}>
-          Row = first target, column = second target (buffer → row → column). Click or drag to paint. Click a row/column label to toggle a whole line.
+          Row = first target, column = second target (buffer → row → column). Click or drag to paint (drag a diagonal to select a rectangle). Click a row/column label to toggle a whole line.
         </p>
 
-        {/* Legend */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, margin: "10px 0 14px" }}>
-          {legend.map(([k, l]) => (
-            <div key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 14, height: 14, borderRadius: 3, background: SUBSET_COLORS[k], opacity: k.startsWith("buffer") ? 0.4 : 1, backgroundImage: k.startsWith("buffer") ? STRIPES : "none", border: k === "impossible" ? "1px solid #2a2a2e" : "none", display: "inline-block" }} />
-              <span className="font-mono" style={{ fontSize: 11, color: "#A1A1AA" }}>{l}</span>
-            </div>
-          ))}
-        </div>
-
         {/* Grid */}
-        <div style={{ flex: 1, minHeight: 0, overflow: "auto", touchAction: "none", paddingBottom: 4 }}>
+        <div style={{ overflowX: "hidden", touchAction: "none", paddingBottom: 4, marginTop: 12 }}>
           <div style={{ display: "inline-block", userSelect: "none" }}>
             {/* column header */}
             <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
@@ -768,6 +763,16 @@ function SubsetModal({ settings, setSettings, onClose }) {
               </div>
             ))}
           </div>
+        </div>
+
+        {/* Legend (below grid) */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 14 }}>
+          {legend.map(([k, l]) => (
+            <div key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ width: 14, height: 14, borderRadius: 3, background: SUBSET_COLORS[k], opacity: k.startsWith("buffer") ? 0.4 : 1, backgroundImage: k.startsWith("buffer") ? STRIPES : "none", border: k === "impossible" ? "1px solid #2a2a2e" : "none", display: "inline-block", flex: "0 0 auto" }} />
+              <span className="font-mono" style={{ fontSize: 11, color: "#A1A1AA" }}>{l}</span>
+            </div>
+          ))}
         </div>
       </motion.div>
       </div>
