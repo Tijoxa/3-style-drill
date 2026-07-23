@@ -69,7 +69,8 @@ export default function App() {
   const streakRef = useRef(0);
   const successRef = useRef(0);
   const targetRef = useRef(null);
-  const caseStartRef = useRef(Date.now());
+  const caseStartRef = useRef(null);
+  const caseStartedRef = useRef(false);
   const modeRef = useRef(mode);
   const settingsRef = useRef(settings);
   const busyRef = useRef(false);
@@ -95,7 +96,8 @@ export default function App() {
       const target = apply3Cycle(cur, [buffer, t1, t2], type, maps);
       if (target !== cur) {
         targetRef.current = target;
-        caseStartRef.current = Date.now();
+        caseStartRef.current = null;
+        caseStartedRef.current = false;
         setPair({ t1, t2, type });
         setHighlights({ bufferIdx: facelet(buffer, type, maps), t1Idx: facelet(t1, type, maps), t2Idx: facelet(t2, type, maps) });
         return;
@@ -106,7 +108,7 @@ export default function App() {
   const onSuccess = useCallback(() => {
     if (busyRef.current) return;
     busyRef.current = true;
-    const elapsed = Date.now() - caseStartRef.current;
+    const elapsed = caseStartRef.current ? Date.now() - caseStartRef.current : 0;
     if (settingsRef.current.sound) beep(880, true);
     setFlash("ok");
     const newStreak = streakRef.current + 1;
@@ -135,8 +137,14 @@ export default function App() {
   }, [buildCase]);
 
   const onStateChanged = useCallback((newState) => {
+    const prev = cubeStateRef.current;
     cubeStateRef.current = newState;
     setNetState(newState);
+    // Start the recognition/execution timer on the first actual move of the case.
+    if (!caseStartedRef.current && !busyRef.current && newState !== prev) {
+      caseStartedRef.current = true;
+      caseStartRef.current = Date.now();
+    }
     if (targetRef.current && newState === targetRef.current) onSuccess();
   }, [onSuccess]);
 
@@ -590,7 +598,7 @@ function RecognitionTimer({ caseStartRef, pairKey }) {
   const [ms, setMs] = useState(0);
   useEffect(() => {
     setMs(0);
-    const id = setInterval(() => setMs(Date.now() - caseStartRef.current), 100);
+    const id = setInterval(() => setMs(caseStartRef.current ? Date.now() - caseStartRef.current : 0), 100);
     return () => clearInterval(id);
   }, [pairKey, caseStartRef]);
   return <div data-testid="recognition-timer" className="font-mono" style={{ color: "#52525B", fontSize: 14 }}>{(ms / 1000).toFixed(1)}s</div>;
