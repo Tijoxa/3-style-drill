@@ -1,11 +1,12 @@
-// Fetches 3-style commutator algorithms live from blddb.net (CORS-enabled).
-// Data files are regularly updated on blddb.net, so we fetch fresh per session
-// and keep a localStorage fallback for offline use.
+// Fetches 3-style commutator algorithms live from v2.blddb.net (CORS-enabled).
+// v2 stores flat dictionaries keyed by the 3-letter case code (buffer+t1+t2),
+// e.g. { "ADM": "U' R' D R U' R' D' R U2" }. We fetch fresh per session and keep
+// a localStorage fallback for offline use.
 import { blddbCode } from "./cube.mjs";
 import { commutator } from "./commutator.js";
 
-const BASE = "https://blddb.net/assets/json/";
-const CACHE_PREFIX = "blddb_cache_v1_";
+const BASE = "https://v2.blddb.net/data/";
+const CACHE_PREFIX = "blddb_cache_v2_";
 const mem = {};
 
 async function loadFile(name) {
@@ -24,25 +25,23 @@ async function loadFile(name) {
   }
 }
 
-// style -> which json files hold the "info" list and the single "recommended" alg
+// style -> which v2 json files provide the data.
+// nightmare: `rec` = recommended (Selected) flat dict, `list` = all variants.
+// manmade: `manmade` = nested [ [ [algs], [sources], [commutators] ], ... ].
 const STYLE_FILES = {
   corner: {
-    nightmare: { std: "cornerAlgToStandard", info: "cornerAlgToInfo", rec: "cornerAlgToNightmare" },
-    balance: { std: "cornerAlgToStandard", info: "cornerAlgToInfoBalance", rec: "cornerAlgToBalance" },
-    yuanzi: { std: "cornerAlgToStandard", info: "cornerAlgToInfoYuanzi", rec: "cornerAlgToYuanzi" },
-    manmade: { std: "cornerAlgToStandard", info: "cornerAlgToInfoManmade", manmade: true },
+    nightmare: { rec: "cornerNightmareSelected", list: "cornerNightmare" },
+    manmade: { manmade: "cornerManmade" },
   },
   edge: {
-    nightmare: { std: "edgeAlgToStandard", info: "edgeAlgToInfo", rec: "edgeAlgToNightmare" },
-    manmade: { std: "edgeAlgToStandard", info: "edgeAlgToInfoManmade", manmade: true },
+    nightmare: { rec: "edgeNightmareSelected", list: "edgeNightmare" },
+    manmade: { manmade: "edgeManmade" },
   },
 };
 
 export const STYLE_OPTIONS = {
   corner: [
     ["nightmare", "Nightmare"],
-    ["balance", "Balance"],
-    ["yuanzi", "Yuanzi"],
     ["manmade", "Manmade"],
   ],
   edge: [
@@ -59,39 +58,61 @@ function comm(alg) {
   } catch { return null; }
 }
 
-// Returns { notFound, key, std, style, recommended, list } where list = [{ alg, commutator, sources? }]
+// Resolve author names into { name, url } using the shared sourceToUrl map.
+function resolveSources(names, type, srcUrls) {
+  return (names || []).map((name) => ({
+    name,
+    url: (srcUrls && srcUrls[name] && srcUrls[name][type]) || null,
+  }));
+}
+
+// Returns { notFound, key, style, recommended, recCommutator, recSources, list }
+// where list = [{ alg, commutator, sources? }]. Commutator is prioritized: for
+// manmade it comes from the database, for nightmare it is derived from the alg.
 export async function fetchHints({ type, buffer, t1, t2, style, maps }) {
   const bc = blddbCode(buffer, type, maps);
   const c1 = blddbCode(t1, type, maps);
   const c2 = blddbCode(t2, type, maps);
-  const styles = STYLE_FILES[type];
+  const styles = STYLE_FILES[type] || STYLE_FILES.corner;
   const cfg = styles[style] || styles.nightmare;
   if (!bc || !c1 || !c2) return { notFound: true, key: null, style };
 
   const key = `${bc}${c1}${c2}`;
-  const stdMap = await loadFile(cfg.std);
-  const std = stdMap[key];
-  if (!std) return { notFound: true, key, style };
 
-  const infoMap = await loadFile(cfg.info);
-  const entry = infoMap[std];
-  if (!entry) return { notFound: true, key, std, style };
-
-  let list;
-  let recommended = null;
   if (cfg.manmade) {
-    list = entry.map((e) => {
+    const map = await loadFile(cfg.manmade);
+    const entry = map[key];
+    if (!entry || !entry.length) return { notFound: true, key, style };
+    const srcUrls = await loadFile("sourceToUrl").catch(() => ({}));
+    const list = entry.map((e) => {
       const algs = e[0] || [];
-      const sources = e[1] || [];
+      const sources = resolveSources(e[1], type, srcUrls);
+      const comms = e[2] || [];
       const alg = algs[0] || "";
-      return { alg, variations: algs, commutator: comm(alg), sources };
+      return { alg, variations: algs, commutator: comms[0] || comm(alg), sources };
     });
-    recommended = list[0] ? list[0].alg : null;
-  } else {
-    list = entry.map((a) => ({ alg: a, commutator: comm(a) }));
-    const recMap = await loadFile(cfg.rec);
-    recommended = recMap[std] || (list[0] && list[0].alg) || null;
+    const first = list[0] || null;
+    return {
+      notFound: false, key, style,
+      recommended: first ? first.alg : null,
+      recCommutator: first ? first.commutator : null,
+      recSources: first ? first.sources : [],
+      list,
+    };
   }
-  const recCommutator = recommended ? comm(recommended) : null;
-  return { notFound: false, key, std, style, recommended, recCommutator, list };
+
+  // nightmare
+  const recMap = await loadFile(cfg.rec);
+  const recommended = recMap[key];
+  if (!recommended) return { notFound: true, key, style };
+  const listMap = await loadFile(cfg.list).catch(() => ({}));
+  const algs = (listMap[key] && listMap[key].length) ? listMap[key] : [recommended];
+  const list = algs.map((a) => ({ alg: a, commutator: comm(a) }));
+  return {
+    notFound: false, key, style,
+    recommended,
+    recCommutator: comm(recommended),
+    recSources: [],
+    list,
+  };
 }

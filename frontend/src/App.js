@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
   Bluetooth, BluetoothConnected, Settings as SettingsIcon, BarChart3,
-  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github,
+  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info,
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
@@ -803,6 +803,52 @@ function SubsetModal({ settings, setSettings, onClose }) {
   );
 }
 
+function SourceInfo({ sources, testid }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}
+      onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        data-testid={testid}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        title={`${sources.length} source${sources.length > 1 ? "s" : ""}`}
+        style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "#A1A1AA", cursor: "pointer", padding: 2, fontSize: 11 }}>
+        <Info size={14} />
+        <span className="font-mono">{sources.length}</span>
+      </button>
+      {open && (
+        <div
+          data-testid={`${testid}-popover`}
+          className="theme-scroll"
+          style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 70, width: 240, maxHeight: 220, overflowY: "auto", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+          <div className="overline font-head" style={{ fontSize: 9, color: "var(--active)", marginBottom: 6 }}>Sources</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {sources.map((s, i) => (
+              s.url ? (
+                <a key={i} href={s.url} target="_blank" rel="noreferrer"
+                  className="font-mono"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ fontSize: 11, color: "#93C5FD", textDecoration: "none", wordBreak: "break-word" }}>
+                  {s.name}
+                </a>
+              ) : (
+                <span key={i} className="font-mono" style={{ fontSize: 11, color: "#A1A1AA", wordBreak: "break-word" }}>{s.name}</span>
+              )
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
   const isMobile = useIsMobile();
   const [state, setState] = useState({ loading: true, error: null, data: null });
@@ -825,11 +871,14 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
   }, [onClose]);
 
   const options = STYLE_OPTIONS[pair.type] || STYLE_OPTIONS.corner;
-  const blddbUrl = pair.type === "corner" ? "https://blddb.net/corner.html" : "https://blddb.net/edge.html";
+  const effStyle = options.some((o) => o[0] === style) ? style : "nightmare";
+  useEffect(() => { if (effStyle !== style) setStyle(effStyle); }, [effStyle, style, setStyle]);
+  const blddbUrl = pair.type === "corner" ? "https://v2.blddb.net/corner" : "https://v2.blddb.net/edge";
   const { loading, error, data } = state;
   const list = data && data.list ? data.list : [];
   const recAlg = data && data.recommended;
   const recComm = data && data.recCommutator;
+  const recSources = (data && data.recSources) || [];
   const rest = list.filter((a) => a.alg !== recAlg);
 
   const modalStyle = {
@@ -870,26 +919,35 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
         <div style={{ marginTop: 18, minHeight: 80 }}>
           {loading && (
             <div data-testid="hint-loading" className="font-mono" style={{ display: "flex", alignItems: "center", gap: 10, color: "#A1A1AA", fontSize: 13, padding: "20px 0" }}>
-              <Loader2 size={16} className="spin" /> Loading algorithms from blddb.net…
+              <Loader2 size={16} className="spin" /> Loading algorithms from v2.blddb.net…
             </div>
           )}
           {!loading && error && (
             <div data-testid="hint-error" className="font-mono" style={{ color: "var(--error)", fontSize: 13, lineHeight: 1.6 }}>
-              Couldn't reach blddb.net ({error}). Check your connection and try again.
+              Couldn't reach v2.blddb.net ({error}). Check your connection and try again.
             </div>
           )}
           {!loading && !error && data && data.notFound && (
             <div data-testid="hint-notfound" className="font-mono" style={{ color: "#A1A1AA", fontSize: 13, lineHeight: 1.6 }}>
-              No algorithm found in blddb for this case{data.key ? ` (${data.key})` : ""}. It may be a same-piece or unsupported case.
+              No algorithm found in v2.blddb.net for this case{data.key ? ` (${data.key})` : ""}. It may be a same-piece or unsupported case.
             </div>
           )}
           {!loading && !error && data && !data.notFound && (
             <>
               {recAlg && (
                 <div data-testid="hint-recommended" style={{ border: "1px solid var(--active)", borderRadius: 12, padding: 16, background: "var(--surface-2)" }}>
-                  <div className="overline font-head" style={{ fontSize: 10, color: "var(--active)", marginBottom: 8 }}>Recommended · {(options.find((o) => o[0] === style) || [])[1]}</div>
-                  <div className="font-mono" data-testid="hint-rec-alg" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.02em", wordBreak: "break-word" }}>{recAlg}</div>
-                  {recComm && <div className="font-mono" data-testid="hint-rec-comm" style={{ fontSize: 13, color: "#A1A1AA", marginTop: 8 }}>{recComm}</div>}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                    <div className="overline font-head" style={{ fontSize: 10, color: "var(--active)" }}>Recommended · {(options.find((o) => o[0] === effStyle) || [])[1]}</div>
+                    {recSources.length > 0 && <SourceInfo sources={recSources} testid="hint-rec-sources" />}
+                  </div>
+                  {recComm ? (
+                    <>
+                      <div className="font-mono" data-testid="hint-rec-comm" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.02em", wordBreak: "break-word" }}>{recComm}</div>
+                      <div className="font-mono" data-testid="hint-rec-alg" style={{ fontSize: 13, color: "#A1A1AA", marginTop: 8 }}>{recAlg}</div>
+                    </>
+                  ) : (
+                    <div className="font-mono" data-testid="hint-rec-alg" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.02em", wordBreak: "break-word" }}>{recAlg}</div>
+                  )}
                 </div>
               )}
 
@@ -902,9 +960,11 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
                     <div data-testid="hint-all-list" style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                       {rest.map((a, i) => (
                         <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "var(--bg)" }}>
-                          <div className="font-mono" style={{ fontSize: 14, fontWeight: 700, wordBreak: "break-word" }}>{a.alg}</div>
-                          {a.commutator && <div className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", marginTop: 4 }}>{a.commutator}</div>}
-                          {a.sources && a.sources.length > 0 && <div className="font-mono" style={{ fontSize: 10, color: "#52525B", marginTop: 4 }}>{a.sources.length} source{a.sources.length > 1 ? "s" : ""}</div>}
+                          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                            <div className="font-mono" style={{ fontSize: 14, fontWeight: 700, wordBreak: "break-word" }}>{a.commutator || a.alg}</div>
+                            {a.sources && a.sources.length > 0 && <SourceInfo sources={a.sources} testid={`hint-src-${i}`} />}
+                          </div>
+                          {a.commutator && <div className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", marginTop: 4 }}>{a.alg}</div>}
                         </div>
                       ))}
                     </div>
@@ -918,7 +978,7 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
         <a data-testid="hint-blddb-link" href={blddbUrl} target="_blank" rel="noreferrer"
           className="font-mono"
           style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 18, fontSize: 12, color: "#A1A1AA", textDecoration: "none" }}>
-          <ExternalLink size={13} /> Data from blddb.net (live)
+          <ExternalLink size={13} /> Data from v2.blddb.net (live)
         </a>
       </motion.div>
       </div>
