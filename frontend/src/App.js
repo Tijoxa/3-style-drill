@@ -602,6 +602,9 @@ function SubsetModal({ settings, setSettings, onClose }) {
 
   const isImpossible = useCallback((t1, t2) => t1 === t2 || pieceOf(t1) === pieceOf(t2), [pieceOf]);
   const isBufferExcluded = useCallback((t1, t2) => pieceOf(t1) === bufPiece || pieceOf(t2) === bufPiece, [pieceOf, bufPiece]);
+  // Only the bottom-left triangle is shown/interactive: a pair {A,B} is learnt as one unit
+  // (both commutators AB and BA), so the mirror cell in the upper triangle is hidden.
+  const isHidden = useCallback((t1, t2) => idxOf[t1] <= idxOf[t2], [idxOf]);
 
   const inDragRect = useCallback((t1, t2) => {
     const d = dragRef.current; if (!d) return false;
@@ -636,10 +639,11 @@ function SubsetModal({ settings, setSettings, onClose }) {
         const rlo = Math.min(d.r0, d.r1), rhi = Math.max(d.r0, d.r1);
         const clo = Math.min(d.c0, d.c1), chi = Math.max(d.c0, d.c1);
         for (let r = rlo; r <= rhi; r++) for (let c = clo; c <= chi; c++) {
+          if (r <= c) continue; // bottom-left triangle only
           const t1 = letters[r], t2 = letters[c];
           if (isImpossible(t1, t2)) continue;
-          const k = `${t1}:${t2}`;
-          if (d.mode === "disable") n[k] = true; else delete n[k];
+          const k1 = `${t1}:${t2}`, k2 = `${t2}:${t1}`; // mirror both directions of the pair
+          if (d.mode === "disable") { n[k1] = true; n[k2] = true; } else { delete n[k1]; delete n[k2]; }
         }
         commit(n);
         return n;
@@ -673,15 +677,23 @@ function SubsetModal({ settings, setSettings, onClose }) {
     setWork((w) => {
       const n = { ...w };
       for (const t1 of letters) for (const t2 of letters) {
+        if (isHidden(t1, t2)) continue; // bottom-left triangle only
         if (isImpossible(t1, t2)) continue;
         if (filter && !filter(t1, t2)) continue;
-        const k = `${t1}:${t2}`;
-        if (mode === "disable") n[k] = true; else delete n[k];
+        const k1 = `${t1}:${t2}`, k2 = `${t2}:${t1}`; // mirror both directions of the pair
+        if (mode === "disable") { n[k1] = true; n[k2] = true; } else { delete n[k1]; delete n[k2]; }
       }
       return n;
     });
   };
   const commitBulk = (mode, filter) => { setBulk(mode, filter); setTimeout(() => commit(workRef.current), 0); };
+
+  // A pair contains letter L; is every drillable pair involving L already disabled?
+  const allDisabledForLetter = useCallback((L) => letters.every((x) => {
+    if (x === L || isImpossible(L, x) || isBufferExcluded(L, x)) return true;
+    const key = idxOf[L] > idxOf[x] ? `${L}:${x}` : `${x}:${L}`;
+    return !!work[key];
+  }), [letters, isImpossible, isBufferExcluded, idxOf, work]);
 
   const stateOf = (t1, t2) => {
     if (isImpossible(t1, t2)) return "impossible";
@@ -690,10 +702,10 @@ function SubsetModal({ settings, setSettings, onClose }) {
     return disabled ? "disabled" : "enabled";
   };
 
-  // count active (enabled, drillable) cases
+  // count active (enabled, drillable) pairs — bottom-left triangle only
   let active = 0, total = 0;
   for (const t1 of letters) for (const t2 of letters) {
-    if (isImpossible(t1, t2) || isBufferExcluded(t1, t2)) continue;
+    if (isHidden(t1, t2) || isImpossible(t1, t2) || isBufferExcluded(t1, t2)) continue;
     total += 1;
     if (!effDisabled(t1, t2)) active += 1;
   }
@@ -754,7 +766,7 @@ function SubsetModal({ settings, setSettings, onClose }) {
             ))}
           </div>
           <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
-            buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} cases active
+            buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} pairs active
           </span>
         </div>
 
@@ -765,7 +777,7 @@ function SubsetModal({ settings, setSettings, onClose }) {
             <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
               {letters.map((t2) => (
                 <button key={t2} data-testid={`subset-col-${t2}`}
-                  onClick={() => commitBulk(letters.every((t1) => isImpossible(t1, t2) || isBufferExcluded(t1, t2) || work[`${t1}:${t2}`]) ? "enable" : "disable", (a, b) => b === t2)}
+                  onClick={() => commitBulk(allDisabledForLetter(t2) ? "enable" : "disable", (a, b) => a === t2 || b === t2)}
                   className="font-mono"
                   style={{ width: cell, height: label, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
                   {t2.toUpperCase()}
@@ -775,12 +787,16 @@ function SubsetModal({ settings, setSettings, onClose }) {
             {letters.map((t1) => (
               <div key={t1} style={{ display: "flex", gap, marginBottom: gap, alignItems: "center" }}>
                 <button data-testid={`subset-row-${t1}`}
-                  onClick={() => commitBulk(letters.every((t2) => isImpossible(t1, t2) || isBufferExcluded(t1, t2) || work[`${t1}:${t2}`]) ? "enable" : "disable", (a) => a === t1)}
+                  onClick={() => commitBulk(allDisabledForLetter(t1) ? "enable" : "disable", (a, b) => a === t1 || b === t1)}
                   className="font-mono"
                   style={{ width: label, height: cell, marginRight: gap, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "right" }}>
                   {t1.toUpperCase()}
                 </button>
                 {letters.map((t2) => {
+                  if (isHidden(t1, t2)) {
+                    // upper-right (mirror) cells are not drilled here — keep the layout square
+                    return <div key={t2} style={{ width: cell, height: cell, flex: "0 0 auto" }} />;
+                  }
                   const st = stateOf(t1, t2);
                   const isBuf = st === "bufferEnabled" || st === "bufferDisabled";
                   const imp = st === "impossible";
@@ -818,7 +834,7 @@ function SubsetModal({ settings, setSettings, onClose }) {
         </div>
 
         <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 12, lineHeight: 1.6 }}>
-          Row = first target, column = second target (buffer → row → column). Click or drag to paint (drag a diagonal to select a rectangle). Click a row/column label to toggle a whole line.
+          One cell = one pair {"{A,B}"} (both commutators AB and BA). Only the bottom-left triangle is shown since a pair is learnt as a single unit; enabling/disabling a cell applies to both directions. Click or drag to paint. Click a row/column label to toggle every pair containing that letter.
         </p>
 
         {/* Legend (below grid) */}
