@@ -742,10 +742,14 @@ function SubsetModal({ settings, setSettings, onClose }) {
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
           <div data-testid="subset-type-switch" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden", background: "var(--surface)" }}>
-            {[["corner", "Corners"], ["edge", "Edges"]].map(([t, l]) => (
+            {[["corner", "Corners"], ["edge", "Edges"]].map(([t, l], idx) => (
               <button key={t} data-testid={`subset-type-${t}`} onClick={() => setType(t)} className="overline font-head"
                 style={{ padding: "8px 16px", fontSize: 12, letterSpacing: "0.12em", cursor: "pointer", border: "none",
                   background: type === t ? "var(--surface-2)" : "transparent", color: type === t ? "#fff" : "#7a7a7a",
+                  // Distinct corner rounding per active button segment so they flush cleanly against the wrapper shell
+                  borderRadius: type === t 
+                    ? (idx === 0 ? "9px 0 0 9px" : "0 9px 9px 0") 
+                    : "0px",
                   boxShadow: type === t ? "inset 0 0 0 1px var(--active)" : "none" }}>{l}</button>
             ))}
           </div>
