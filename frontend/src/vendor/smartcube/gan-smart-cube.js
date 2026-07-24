@@ -110,6 +110,7 @@ async function connectGanCube(customMacAddressProvider) {
         pick = 'g3';
     else if (serviceUuidSet.has(g4))
         pick = 'g4';
+    console.info(`[smartcube] device="${device.name}" mac=${mac} -> protocol driver: ${pick || 'NONE (unsupported)'}`);
     var conn = null;
     // Resolve type of connected cube device and setup appropriate encryption / protocol driver
     if (pick === 'g2') {

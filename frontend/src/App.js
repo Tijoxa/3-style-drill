@@ -5,18 +5,21 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
   Bluetooth, BluetoothConnected, Settings as SettingsIcon, BarChart3,
-  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github,
+  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info,
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
+  orientMaps, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
 import { fetchHints, STYLE_OPTIONS } from "./lib/blddb";
+import { loadStore as loadFsrs, saveStore as saveFsrs, resetStore as resetFsrs, recordReview, pickWeightedPair } from "./lib/fsrs";
 import CubeNet from "./components/CubeNet";
 
 const STATS_KEY = "bld3style_stats_v1";
 const SETTINGS_KEY = "bld3style_settings_v1";
 const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
+const getMaps = (scheme, orientation) => orientMaps(SCHEMES[scheme] || SCHEMES.speffz, orientation);
 const today = () => new Date().toISOString().slice(0, 10);
 
 function loadJSON(key, fallback) {
@@ -43,7 +46,7 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", disabledCases: {} };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", orientation: { top: "white", front: "green" }, distribution: "uniform", srTimeoutMs: 10000, disabledCases: {} };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 
 export default function App() {
@@ -79,6 +82,9 @@ export default function App() {
   const busyRef = useRef(false);
   const refFaceletsRef = useRef(null);   // cube facelets when last declared "solved"
   const rawFaceletsRef = useRef(SOLVED); // last raw facelets from the cube
+  const fsrsRef = useRef(loadFsrs());    // spaced-repetition memory (local)
+  const currentCaseKeyRef = useRef(null);
+  const currentTypeRef = useRef("corner");
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
 
@@ -86,7 +92,7 @@ export default function App() {
     if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
     const m = modeRef.current;
     const s = settingsRef.current;
-    const maps = SCHEMES[s.scheme] || SCHEMES.speffz;
+    const maps = getMaps(s.scheme, s.orientation);
     const type = m === "corners" ? "corner" : "edge";
     const list = Object.keys(type === "corner" ? maps.corner : maps.edge);
     const buffer = type === "corner" ? s.cornerBuffer : s.edgeBuffer;
@@ -113,11 +119,16 @@ export default function App() {
       return;
     }
     const cur = cubeStateRef.current;
+    const spaced = s.distribution === "spaced";
     for (let tries = 0; tries < 200; tries++) {
-      const [t1, t2] = validPairs[Math.floor(Math.random() * validPairs.length)];
+      const [t1, t2] = spaced
+        ? pickWeightedPair(validPairs, ([a, b]) => caseKey(s.scheme, type, a, b), fsrsRef.current)
+        : validPairs[Math.floor(Math.random() * validPairs.length)];
       const target = apply3Cycle(cur, [buffer, t1, t2], type, maps);
       if (target !== cur) {
         targetRef.current = target;
+        currentCaseKeyRef.current = caseKey(s.scheme, type, t1, t2);
+        currentTypeRef.current = type;
         caseStoppedRef.current = null;
         if (startImmediately) {
           // After finishing a pair: timer runs right away (don't wait for first move).
@@ -168,6 +179,15 @@ export default function App() {
       return next;
     });
     setTimeout(() => setFlash(null), 180);
+    // Spaced-repetition: update the memory model from the solve time (skip timed-out reps).
+    if (settingsRef.current.distribution === "spaced") {
+      const timeout = settingsRef.current.srTimeoutMs || 10000;
+      const key = currentCaseKeyRef.current;
+      if (key && elapsed > 0 && elapsed < timeout) {
+        recordReview(fsrsRef.current, key, currentTypeRef.current, elapsed);
+        saveFsrs(fsrsRef.current);
+      }
+    }
     setTimeout(() => { buildCase(true); busyRef.current = false; }, 60);
   }, [buildCase]);
 
@@ -217,7 +237,7 @@ export default function App() {
   }, [buildCase]);
 
   // init first case + rebuild on mode / scheme / buffer change
-  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.disabledCases]);
+  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases]);
 
   // test/debug hook: lets automated tests simulate execution / cube facelets without Bluetooth
   useEffect(() => {
@@ -293,6 +313,11 @@ export default function App() {
     setSession({ solved: 0, streak: 0, bestStreak: 0, times: [] });
     sessionStartRef.current = Date.now();
     toast.success("Stats reset");
+  };
+
+  const resetSchedule = () => {
+    resetFsrs(fsrsRef.current);
+    toast.success("Spaced-repetition memory reset");
   };
 
   const avgMs = session.times.length ? session.times.reduce((a, b) => a + b, 0) / session.times.length : 0;
@@ -378,7 +403,7 @@ export default function App() {
 
         <RecognitionTimer caseStartRef={caseStartRef} caseStoppedRef={caseStoppedRef} pairKey={pairText} />
 
-        <CubeNet state={netState} highlights={highlights} />
+        <CubeNet state={netState} highlights={highlights} orientation={settings.orientation} />
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
           <button data-testid="skip-btn" onClick={skipCase} style={ghostBtn}><SkipForward size={15} /> Skip (Space)</button>
@@ -425,7 +450,7 @@ export default function App() {
                 <h2 className="font-head" style={{ fontSize: 28, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>{drawer === "settings" ? "Settings" : "Statistics"}</h2>
                 <button data-testid="close-drawer-btn" onClick={() => setDrawer(null)} style={iconBtn}><X size={18} /></button>
               </div>
-              {drawer === "settings" ? <SettingsPanel settings={settings} setSettings={setSettings} resetStats={resetStats} onOpenSubset={() => setSubsetOpen(true)} /> : <StatsPanel lifetime={lifetime} session={session} avgMs={avgMs} />}
+              {drawer === "settings" ? <SettingsPanel settings={settings} setSettings={setSettings} resetStats={resetStats} resetSchedule={resetSchedule} onOpenSubset={() => setSubsetOpen(true)} /> : <StatsPanel lifetime={lifetime} session={session} avgMs={avgMs} />}
             </motion.aside>
           </>
         )}
@@ -445,7 +470,7 @@ export default function App() {
             pair={pair}
             pairText={pairText}
             buffer={mode === "corners" ? settings.cornerBuffer : settings.edgeBuffer}
-            maps={SCHEMES[settings.scheme] || SCHEMES.speffz}
+            maps={getMaps(settings.scheme, settings.orientation)}
             style={pair.type === "corner" ? settings.cornerStyle : settings.edgeStyle}
             setStyle={(v) => setSettings((s) => (pair.type === "corner" ? { ...s, cornerStyle: v } : { ...s, edgeStyle: v }))}
             onClose={() => setHintOpen(false)}
@@ -536,7 +561,7 @@ const STRIPES = "repeating-linear-gradient(45deg, rgba(255,255,255,0.28) 0 2px, 
 function SubsetModal({ settings, setSettings, onClose }) {
   const isMobile = useIsMobile();
   const scheme = settings.scheme;
-  const maps = SCHEMES[scheme] || SCHEMES.speffz;
+  const maps = getMaps(scheme, settings.orientation);
   const [type, setType] = useState("corner");
   const buffer = type === "corner" ? settings.cornerBuffer : settings.edgeBuffer;
   const letters = useMemo(
@@ -808,6 +833,52 @@ function SubsetModal({ settings, setSettings, onClose }) {
   );
 }
 
+function SourceInfo({ sources, testid }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}
+      onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+      <button
+        data-testid={testid}
+        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        title={`${sources.length} source${sources.length > 1 ? "s" : ""}`}
+        style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "#A1A1AA", cursor: "pointer", padding: 2, fontSize: 11 }}>
+        <Info size={14} />
+        <span className="font-mono">{sources.length}</span>
+      </button>
+      {open && (
+        <div
+          data-testid={`${testid}-popover`}
+          className="theme-scroll"
+          style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 70, width: 240, maxHeight: 220, overflowY: "auto", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+          <div className="overline font-head" style={{ fontSize: 9, color: "var(--active)", marginBottom: 6 }}>Sources</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+            {sources.map((s, i) => (
+              s.url ? (
+                <a key={i} href={s.url} target="_blank" rel="noreferrer"
+                  className="font-mono"
+                  onClick={(e) => e.stopPropagation()}
+                  style={{ fontSize: 11, color: "#93C5FD", textDecoration: "none", wordBreak: "break-word" }}>
+                  {s.name}
+                </a>
+              ) : (
+                <span key={i} className="font-mono" style={{ fontSize: 11, color: "#A1A1AA", wordBreak: "break-word" }}>{s.name}</span>
+              )
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
   const isMobile = useIsMobile();
   const [state, setState] = useState({ loading: true, error: null, data: null });
@@ -830,11 +901,14 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
   }, [onClose]);
 
   const options = STYLE_OPTIONS[pair.type] || STYLE_OPTIONS.corner;
-  const blddbUrl = pair.type === "corner" ? "https://blddb.net/corner.html" : "https://blddb.net/edge.html";
+  const effStyle = options.some((o) => o[0] === style) ? style : "nightmare";
+  useEffect(() => { if (effStyle !== style) setStyle(effStyle); }, [effStyle, style, setStyle]);
+  const blddbUrl = pair.type === "corner" ? "https://v2.blddb.net/corner" : "https://v2.blddb.net/edge";
   const { loading, error, data } = state;
   const list = data && data.list ? data.list : [];
   const recAlg = data && data.recommended;
   const recComm = data && data.recCommutator;
+  const recSources = (data && data.recSources) || [];
   const rest = list.filter((a) => a.alg !== recAlg);
 
   const modalStyle = {
@@ -875,26 +949,35 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
         <div style={{ marginTop: 18, minHeight: 80 }}>
           {loading && (
             <div data-testid="hint-loading" className="font-mono" style={{ display: "flex", alignItems: "center", gap: 10, color: "#A1A1AA", fontSize: 13, padding: "20px 0" }}>
-              <Loader2 size={16} className="spin" /> Loading algorithms from blddb.net…
+              <Loader2 size={16} className="spin" /> Loading algorithms from v2.blddb.net…
             </div>
           )}
           {!loading && error && (
             <div data-testid="hint-error" className="font-mono" style={{ color: "var(--error)", fontSize: 13, lineHeight: 1.6 }}>
-              Couldn't reach blddb.net ({error}). Check your connection and try again.
+              Couldn't reach v2.blddb.net ({error}). Check your connection and try again.
             </div>
           )}
           {!loading && !error && data && data.notFound && (
             <div data-testid="hint-notfound" className="font-mono" style={{ color: "#A1A1AA", fontSize: 13, lineHeight: 1.6 }}>
-              No algorithm found in blddb for this case{data.key ? ` (${data.key})` : ""}. It may be a same-piece or unsupported case.
+              No algorithm found in v2.blddb.net for this case{data.key ? ` (${data.key})` : ""}. It may be a same-piece or unsupported case.
             </div>
           )}
           {!loading && !error && data && !data.notFound && (
             <>
               {recAlg && (
                 <div data-testid="hint-recommended" style={{ border: "1px solid var(--active)", borderRadius: 12, padding: 16, background: "var(--surface-2)" }}>
-                  <div className="overline font-head" style={{ fontSize: 10, color: "var(--active)", marginBottom: 8 }}>Recommended · {(options.find((o) => o[0] === style) || [])[1]}</div>
-                  <div className="font-mono" data-testid="hint-rec-alg" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.02em", wordBreak: "break-word" }}>{recAlg}</div>
-                  {recComm && <div className="font-mono" data-testid="hint-rec-comm" style={{ fontSize: 13, color: "#A1A1AA", marginTop: 8 }}>{recComm}</div>}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                    <div className="overline font-head" style={{ fontSize: 10, color: "var(--active)" }}>Recommended · {(options.find((o) => o[0] === effStyle) || [])[1]}</div>
+                    {recSources.length > 0 && <SourceInfo sources={recSources} testid="hint-rec-sources" />}
+                  </div>
+                  {recComm ? (
+                    <>
+                      <div className="font-mono" data-testid="hint-rec-comm" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.02em", wordBreak: "break-word" }}>{recComm}</div>
+                      <div className="font-mono" data-testid="hint-rec-alg" style={{ fontSize: 13, color: "#A1A1AA", marginTop: 8 }}>{recAlg}</div>
+                    </>
+                  ) : (
+                    <div className="font-mono" data-testid="hint-rec-alg" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.02em", wordBreak: "break-word" }}>{recAlg}</div>
+                  )}
                 </div>
               )}
 
@@ -907,9 +990,11 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
                     <div data-testid="hint-all-list" style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
                       {rest.map((a, i) => (
                         <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "var(--bg)" }}>
-                          <div className="font-mono" style={{ fontSize: 14, fontWeight: 700, wordBreak: "break-word" }}>{a.alg}</div>
-                          {a.commutator && <div className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", marginTop: 4 }}>{a.commutator}</div>}
-                          {a.sources && a.sources.length > 0 && <div className="font-mono" style={{ fontSize: 10, color: "#52525B", marginTop: 4 }}>{a.sources.length} source{a.sources.length > 1 ? "s" : ""}</div>}
+                          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                            <div className="font-mono" style={{ fontSize: 14, fontWeight: 700, wordBreak: "break-word" }}>{a.commutator || a.alg}</div>
+                            {a.sources && a.sources.length > 0 && <SourceInfo sources={a.sources} testid={`hint-src-${i}`} />}
+                          </div>
+                          {a.commutator && <div className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", marginTop: 4 }}>{a.alg}</div>}
                         </div>
                       ))}
                     </div>
@@ -923,7 +1008,7 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
         <a data-testid="hint-blddb-link" href={blddbUrl} target="_blank" rel="noreferrer"
           className="font-mono"
           style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 18, fontSize: 12, color: "#A1A1AA", textDecoration: "none" }}>
-          <ExternalLink size={13} /> Data from blddb.net (live)
+          <ExternalLink size={13} /> Data from v2.blddb.net (live)
         </a>
       </motion.div>
       </div>
@@ -964,18 +1049,46 @@ function bufferOptions(scheme, type) {
   return Object.keys(type === "corner" ? maps.corner : maps.edge).sort();
 }
 
-function SettingsPanel({ settings, setSettings, resetStats, onOpenSubset }) {
+function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpenSubset }) {
   const set = (k, v) => setSettings((s) => ({ ...s, [k]: v }));
   const changeScheme = (scheme) => {
     const s = SCHEMES[scheme] || SCHEMES.speffz;
     setSettings((prev) => ({ ...prev, scheme, cornerBuffer: s.cornerBuffer, edgeBuffer: s.edgeBuffer }));
   };
+  const orientation = settings.orientation || { top: "white", front: "green" };
+  const frontChoices = CUBE_COLORS.filter((c) => c !== orientation.top && c !== OPPOSITE_COLOR[orientation.top]);
+  const changeTop = (top) => {
+    const front = (top !== orientation.front && OPPOSITE_COLOR[top] !== orientation.front)
+      ? orientation.front
+      : CUBE_COLORS.find((c) => c !== top && c !== OPPOSITE_COLOR[top]);
+    setSettings((prev) => ({ ...prev, orientation: { top, front } }));
+  };
+  const changeFront = (front) => setSettings((prev) => ({ ...prev, orientation: { ...orientation, front } }));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       <Field label="Lettering scheme">
         <select data-testid="scheme-select" value={settings.scheme} onChange={(e) => changeScheme(e.target.value)} style={selectStyle}>
           {Object.entries(SCHEMES).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
         </select>
+      </Field>
+      <Field label="Cube orientation">
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <span className="font-mono" style={{ fontSize: 10, color: "#52525B", display: "block", marginBottom: 4 }}>Top face</span>
+            <select data-testid="orientation-top-select" value={orientation.top} onChange={(e) => changeTop(e.target.value)} style={selectStyle}>
+              {CUBE_COLORS.map((c) => <option key={c} value={c}>{COLOR_LABEL[c]}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: 1 }}>
+            <span className="font-mono" style={{ fontSize: 10, color: "#52525B", display: "block", marginBottom: 4 }}>Front face</span>
+            <select data-testid="orientation-front-select" value={orientation.front} onChange={(e) => changeFront(e.target.value)} style={selectStyle}>
+              {frontChoices.map((c) => <option key={c} value={c}>{COLOR_LABEL[c]}</option>)}
+            </select>
+          </div>
+        </div>
+        <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
+          How you hold the cube while lettering. Default: white top, green front.
+        </span>
       </Field>
       <Field label="Corner buffer">
         <select data-testid="corner-buffer-select" value={settings.cornerBuffer} onChange={(e) => set("cornerBuffer", e.target.value)} style={selectStyle}>
@@ -989,6 +1102,38 @@ function SettingsPanel({ settings, setSettings, resetStats, onOpenSubset }) {
       </Field>
       <Toggle label="Sound feedback" testid="sound-toggle" value={settings.sound} onChange={(v) => set("sound", v)} />
       <Toggle label="Show manual move buttons" testid="manual-toggle" value={settings.showManual} onChange={(v) => set("showManual", v)} />
+      <Field label="Case distribution">
+        <select data-testid="distribution-select" value={settings.distribution || "uniform"} onChange={(e) => set("distribution", e.target.value)} style={selectStyle}>
+          <option value="uniform">Uniform (random)</option>
+          <option value="spaced">Spaced repetition (FSRS)</option>
+        </select>
+        <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
+          Spaced repetition shows slower / less-recalled cases more often, graded from your solve time.
+        </span>
+      </Field>
+      {settings.distribution === "spaced" && (
+        <>
+          <Field label="Timeout (case not counted above this)">
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input
+                data-testid="sr-timeout-input"
+                type="number" min="1" max="120" step="1"
+                value={Math.round((settings.srTimeoutMs || 10000) / 1000)}
+                onChange={(e) => {
+                  const v = Math.max(1, Math.min(120, Number(e.target.value) || 10));
+                  set("srTimeoutMs", v * 1000);
+                }}
+                style={{ ...selectStyle, width: 90, boxSizing: "border-box" }}
+              />
+              <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>seconds</span>
+            </div>
+            <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
+              If a solve takes longer, it won't update the schedule (the case stays due).
+            </span>
+          </Field>
+          <button data-testid="reset-schedule-btn" onClick={resetSchedule} style={{ ...ghostBtn, justifyContent: "center" }}>Reset spaced-repetition memory</button>
+        </>
+      )}
       <div>
         <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA", display: "block", marginBottom: 8 }}>Case subset</span>
         <button data-testid="open-subset-btn" onClick={onOpenSubset} style={{ ...moveBtn, width: "100%", padding: "11px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "var(--surface-2)" }}>
