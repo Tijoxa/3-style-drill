@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
   Bluetooth, BluetoothConnected, Settings as SettingsIcon, BarChart3,
-  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info,
+  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info, ArrowLeftRight,
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
@@ -46,7 +46,7 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", orientation: { top: "white", front: "green" }, distribution: "uniform", srTimeoutMs: 10000, disabledCases: {} };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", orientation: { top: "white", front: "green" }, distribution: "uniform", srTimeoutMs: 10000, disabledCases: {}, symmetricSubset: true };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 
 export default function App() {
@@ -563,6 +563,14 @@ function SubsetModal({ settings, setSettings, onClose }) {
   const scheme = settings.scheme;
   const maps = getMaps(scheme, settings.orientation);
   const [type, setType] = useState("corner");
+  const [symmetric, setSymmetric] = useState(settings.symmetricSubset !== false);
+
+  const toggleSymmetric = () => {
+    const next = !symmetric;
+    setSymmetric(next);
+    setSettings((s) => ({ ...s, symmetricSubset: next }));
+  };
+
   const buffer = type === "corner" ? settings.cornerBuffer : settings.edgeBuffer;
   const letters = useMemo(
     () => Object.keys(type === "corner" ? maps.corner : maps.edge).sort(),
@@ -606,20 +614,28 @@ function SubsetModal({ settings, setSettings, onClose }) {
   const inDragRect = useCallback((t1, t2) => {
     const d = dragRef.current; if (!d) return false;
     const r = idxOf[t1], c = idxOf[t2];
-    return r >= Math.min(d.r0, d.r1) && r <= Math.max(d.r0, d.r1) && c >= Math.min(d.c0, d.c1) && c <= Math.max(d.c0, d.c1);
-  }, [idxOf]);
+    const inBox = (row, col) => row >= Math.min(d.r0, d.r1) && row <= Math.max(d.r0, d.r1) && col >= Math.min(d.c0, d.c1) && col <= Math.max(d.c0, d.c1);
+    if (inBox(r, c)) return true;
+    if (symmetric && inBox(c, r)) return true;
+    return false;
+  }, [idxOf, symmetric]);
 
   const effDisabled = useCallback((t1, t2) => {
     const d = dragRef.current;
-    if (d && inDragRect(t1, t2) && !isImpossible(t1, t2)) return d.mode === "disable";
+    if (d && (inDragRect(t1, t2) || (symmetric && inDragRect(t2, t1))) && !isImpossible(t1, t2)) {
+      return d.mode === "disable";
+    }
+    if (symmetric) {
+      return !!work[`${t1}:${t2}`] || !!work[`${t2}:${t1}`];
+    }
     return !!work[`${t1}:${t2}`];
-  }, [inDragRect, work, isImpossible]);
+  }, [inDragRect, work, isImpossible, symmetric]);
 
   const startDrag = useCallback((t1, t2) => {
     if (isImpossible(t1, t2)) return;
-    const mode = workRef.current[`${t1}:${t2}`] ? "enable" : "disable";
+    const mode = effDisabled(t1, t2) ? "enable" : "disable";
     setDrag({ mode, r0: idxOf[t1], c0: idxOf[t2], r1: idxOf[t1], c1: idxOf[t2] });
-  }, [idxOf, isImpossible]);
+  }, [idxOf, isImpossible, effDisabled]);
 
   const extendDrag = useCallback((t1, t2) => {
     const r = idxOf[t1], c = idxOf[t2];
@@ -638,8 +654,15 @@ function SubsetModal({ settings, setSettings, onClose }) {
         for (let r = rlo; r <= rhi; r++) for (let c = clo; c <= chi; c++) {
           const t1 = letters[r], t2 = letters[c];
           if (isImpossible(t1, t2)) continue;
-          const k = `${t1}:${t2}`;
-          if (d.mode === "disable") n[k] = true; else delete n[k];
+          const k1 = `${t1}:${t2}`;
+          const k2 = `${t2}:${t1}`;
+          if (d.mode === "disable") {
+            n[k1] = true;
+            if (symmetric) n[k2] = true;
+          } else {
+            delete n[k1];
+            if (symmetric) delete n[k2];
+          }
         }
         commit(n);
         return n;
@@ -649,7 +672,7 @@ function SubsetModal({ settings, setSettings, onClose }) {
     window.addEventListener("pointerup", finish);
     window.addEventListener("pointercancel", finish);
     return () => { window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", finish); };
-  }, [commit, letters, isImpossible]);
+  }, [commit, letters, isImpossible, symmetric]);
 
   // Touch/mouse: pointer capture blocks pointerenter on other cells, so track via elementFromPoint.
   useEffect(() => {
@@ -675,8 +698,15 @@ function SubsetModal({ settings, setSettings, onClose }) {
       for (const t1 of letters) for (const t2 of letters) {
         if (isImpossible(t1, t2)) continue;
         if (filter && !filter(t1, t2)) continue;
-        const k = `${t1}:${t2}`;
-        if (mode === "disable") n[k] = true; else delete n[k];
+        const k1 = `${t1}:${t2}`;
+        const k2 = `${t2}:${t1}`;
+        if (mode === "disable") {
+          n[k1] = true;
+          if (symmetric) n[k2] = true;
+        } else {
+          delete n[k1];
+          if (symmetric) delete n[k2];
+        }
       }
       return n;
     });
@@ -746,14 +776,37 @@ function SubsetModal({ settings, setSettings, onClose }) {
               <button key={t} data-testid={`subset-type-${t}`} onClick={() => setType(t)} className="overline font-head"
                 style={{ padding: "8px 16px", fontSize: 12, letterSpacing: "0.12em", cursor: "pointer", border: "none",
                   background: type === t ? "var(--surface-2)" : "transparent", color: type === t ? "#fff" : "#7a7a7a",
-                  // Distinct corner rounding per active button segment so they flush cleanly against the wrapper shell
                   borderRadius: type === t 
                     ? (idx === 0 ? "9px 0 0 9px" : "0 9px 9px 0") 
                     : "0px",
                   boxShadow: type === t ? "inset 0 0 0 1px var(--active)" : "none" }}>{l}</button>
             ))}
           </div>
-          <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
+
+          <button
+            data-testid="subset-symmetric-toggle"
+            onClick={toggleSymmetric}
+            className="overline font-head"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "8px 14px",
+              fontSize: 11,
+              letterSpacing: "0.08em",
+              borderRadius: 10,
+              cursor: "pointer",
+              border: "1px solid var(--line)",
+              background: symmetric ? "var(--surface-2)" : "transparent",
+              color: symmetric ? "#fff" : "#7a7a7a",
+              boxShadow: symmetric ? "inset 0 0 0 1px var(--active)" : "none",
+            }}
+          >
+            <ArrowLeftRight size={13} style={{ color: symmetric ? "var(--active)" : "#7a7a7a" }} />
+            Symmetry <b style={{ color: symmetric ? "var(--success)" : "#7a7a7a" }}>{symmetric ? "ON" : "OFF"}</b>
+          </button>
+
+          <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA", marginLeft: "auto" }}>
             buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} cases active
           </span>
         </div>
@@ -765,49 +818,55 @@ function SubsetModal({ settings, setSettings, onClose }) {
             <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
               {letters.map((t2) => (
                 <button key={t2} data-testid={`subset-col-${t2}`}
-                  onClick={() => commitBulk(letters.every((t1) => isImpossible(t1, t2) || isBufferExcluded(t1, t2) || work[`${t1}:${t2}`]) ? "enable" : "disable", (a, b) => b === t2)}
+                  onClick={() => commitBulk(letters.every((t1) => isImpossible(t1, t2) || isBufferExcluded(t1, t2) || effDisabled(t1, t2)) ? "enable" : "disable", (a, b) => b === t2 || (symmetric && a === t2))}
                   className="font-mono"
                   style={{ width: cell, height: label, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
                   {t2.toUpperCase()}
                 </button>
               ))}
             </div>
-            {letters.map((t1) => (
-              <div key={t1} style={{ display: "flex", gap, marginBottom: gap, alignItems: "center" }}>
-                <button data-testid={`subset-row-${t1}`}
-                  onClick={() => commitBulk(letters.every((t2) => isImpossible(t1, t2) || isBufferExcluded(t1, t2) || work[`${t1}:${t2}`]) ? "enable" : "disable", (a) => a === t1)}
-                  className="font-mono"
-                  style={{ width: label, height: cell, marginRight: gap, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "right" }}>
-                  {t1.toUpperCase()}
-                </button>
-                {letters.map((t2) => {
-                  const st = stateOf(t1, t2);
-                  const isBuf = st === "bufferEnabled" || st === "bufferDisabled";
-                  const imp = st === "impossible";
-                  return (
-                    <div
-                      key={t2}
-                      data-testid={`subset-cell-${t1}-${t2}`}
-                      data-state={st}
-                      data-subcell="1"
-                      data-t1={t1}
-                      data-t2={t2}
-                      onPointerDown={(e) => { if (!imp) { e.preventDefault(); startDrag(t1, t2); } }}
-                      onPointerEnter={() => { if (!imp) extendDrag(t1, t2); }}
-                      title={`${t1.toUpperCase()}${t2.toUpperCase()}`}
-                      style={{
-                        width: cell, height: cell, borderRadius: 3, flex: "0 0 auto",
-                        background: SUBSET_COLORS[st],
-                        backgroundImage: isBuf ? STRIPES : "none",
-                        opacity: isBuf ? 0.42 : 1,
-                        border: imp ? "1px solid #2a2a2e" : "1px solid rgba(0,0,0,0.35)",
-                        cursor: imp ? "not-allowed" : "pointer",
-                      }}
-                    />
-                  );
-                })}
-              </div>
-            ))}
+            {letters.map((t1) => {
+              const rIdx = idxOf[t1];
+              return (
+                <div key={t1} style={{ display: "flex", gap, marginBottom: gap, alignItems: "center" }}>
+                  <button data-testid={`subset-row-${t1}`}
+                    onClick={() => commitBulk(letters.every((t2) => isImpossible(t1, t2) || isBufferExcluded(t1, t2) || effDisabled(t1, t2)) ? "enable" : "disable", (a, b) => a === t1 || (symmetric && b === t1))}
+                    className="font-mono"
+                    style={{ width: label, height: cell, marginRight: gap, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "right" }}>
+                    {t1.toUpperCase()}
+                  </button>
+                  {letters.map((t2) => {
+                    const cIdx = idxOf[t2];
+                    const st = stateOf(t1, t2);
+                    const isBuf = st === "bufferEnabled" || st === "bufferDisabled";
+                    const imp = st === "impossible";
+                    const isUpper = rIdx < cIdx;
+                    return (
+                      <div
+                        key={t2}
+                        data-testid={`subset-cell-${t1}-${t2}`}
+                        data-state={st}
+                        data-subcell="1"
+                        data-t1={t1}
+                        data-t2={t2}
+                        onPointerDown={(e) => { if (!imp) { e.preventDefault(); startDrag(t1, t2); } }}
+                        onPointerEnter={() => { if (!imp) extendDrag(t1, t2); }}
+                        title={`${t1.toUpperCase()}${t2.toUpperCase()}${symmetric && isUpper ? " (mirrored from " + t2.toUpperCase() + t1.toUpperCase() + ")" : ""}`}
+                        style={{
+                          width: cell, height: cell, borderRadius: 3, flex: "0 0 auto",
+                          background: SUBSET_COLORS[st],
+                          backgroundImage: isBuf ? STRIPES : "none",
+                          opacity: isBuf ? 0.42 : (symmetric && isUpper ? 0.85 : 1),
+                          border: imp ? "1px solid #2a2a2e" : "1px solid rgba(0,0,0,0.35)",
+                          boxShadow: symmetric && !isUpper && !imp ? "inset 0 0 0 1px rgba(255,255,255,0.08)" : "none",
+                          cursor: imp ? "not-allowed" : "pointer",
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -818,7 +877,7 @@ function SubsetModal({ settings, setSettings, onClose }) {
         </div>
 
         <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 12, lineHeight: 1.6 }}>
-          Row = first target, column = second target (buffer → row → column). Click or drag to paint (drag a diagonal to select a rectangle). Click a row/column label to toggle a whole line.
+          Row = first target, column = second target (buffer → row → column). {symmetric ? "Symmetry is ON: selecting/painting in the lower part automatically mirrors to the upper part." : "Click or drag to paint. Click a row/column label to toggle a whole line."}
         </p>
 
         {/* Legend (below grid) */}
