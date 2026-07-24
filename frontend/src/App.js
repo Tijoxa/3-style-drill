@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
+  orientMaps, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
 import { fetchHints, STYLE_OPTIONS } from "./lib/blddb";
@@ -17,6 +18,7 @@ import CubeNet from "./components/CubeNet";
 const STATS_KEY = "bld3style_stats_v1";
 const SETTINGS_KEY = "bld3style_settings_v1";
 const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
+const getMaps = (scheme, orientation) => orientMaps(SCHEMES[scheme] || SCHEMES.speffz, orientation);
 const today = () => new Date().toISOString().slice(0, 10);
 
 function loadJSON(key, fallback) {
@@ -43,7 +45,7 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", disabledCases: {} };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", orientation: { top: "white", front: "green" }, disabledCases: {} };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 
 export default function App() {
@@ -86,7 +88,7 @@ export default function App() {
     if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
     const m = modeRef.current;
     const s = settingsRef.current;
-    const maps = SCHEMES[s.scheme] || SCHEMES.speffz;
+    const maps = getMaps(s.scheme, s.orientation);
     const type = m === "corners" ? "corner" : "edge";
     const list = Object.keys(type === "corner" ? maps.corner : maps.edge);
     const buffer = type === "corner" ? s.cornerBuffer : s.edgeBuffer;
@@ -217,7 +219,7 @@ export default function App() {
   }, [buildCase]);
 
   // init first case + rebuild on mode / scheme / buffer change
-  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.disabledCases]);
+  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases]);
 
   // test/debug hook: lets automated tests simulate execution / cube facelets without Bluetooth
   useEffect(() => {
@@ -440,7 +442,7 @@ export default function App() {
             pair={pair}
             pairText={pairText}
             buffer={mode === "corners" ? settings.cornerBuffer : settings.edgeBuffer}
-            maps={SCHEMES[settings.scheme] || SCHEMES.speffz}
+            maps={getMaps(settings.scheme, settings.orientation)}
             style={pair.type === "corner" ? settings.cornerStyle : settings.edgeStyle}
             setStyle={(v) => setSettings((s) => (pair.type === "corner" ? { ...s, cornerStyle: v } : { ...s, edgeStyle: v }))}
             onClose={() => setHintOpen(false)}
@@ -531,7 +533,7 @@ const STRIPES = "repeating-linear-gradient(45deg, rgba(255,255,255,0.28) 0 2px, 
 function SubsetModal({ settings, setSettings, onClose }) {
   const isMobile = useIsMobile();
   const scheme = settings.scheme;
-  const maps = SCHEMES[scheme] || SCHEMES.speffz;
+  const maps = getMaps(scheme, settings.orientation);
   const [type, setType] = useState("corner");
   const buffer = type === "corner" ? settings.cornerBuffer : settings.edgeBuffer;
   const letters = useMemo(
@@ -1025,12 +1027,40 @@ function SettingsPanel({ settings, setSettings, resetStats, onOpenSubset }) {
     const s = SCHEMES[scheme] || SCHEMES.speffz;
     setSettings((prev) => ({ ...prev, scheme, cornerBuffer: s.cornerBuffer, edgeBuffer: s.edgeBuffer }));
   };
+  const orientation = settings.orientation || { top: "white", front: "green" };
+  const frontChoices = CUBE_COLORS.filter((c) => c !== orientation.top && c !== OPPOSITE_COLOR[orientation.top]);
+  const changeTop = (top) => {
+    const front = (top !== orientation.front && OPPOSITE_COLOR[top] !== orientation.front)
+      ? orientation.front
+      : CUBE_COLORS.find((c) => c !== top && c !== OPPOSITE_COLOR[top]);
+    setSettings((prev) => ({ ...prev, orientation: { top, front } }));
+  };
+  const changeFront = (front) => setSettings((prev) => ({ ...prev, orientation: { ...orientation, front } }));
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
       <Field label="Lettering scheme">
         <select data-testid="scheme-select" value={settings.scheme} onChange={(e) => changeScheme(e.target.value)} style={selectStyle}>
           {Object.entries(SCHEMES).map(([k, v]) => <option key={k} value={k}>{v.name}</option>)}
         </select>
+      </Field>
+      <Field label="Cube orientation">
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <span className="font-mono" style={{ fontSize: 10, color: "#52525B", display: "block", marginBottom: 4 }}>Top face</span>
+            <select data-testid="orientation-top-select" value={orientation.top} onChange={(e) => changeTop(e.target.value)} style={selectStyle}>
+              {CUBE_COLORS.map((c) => <option key={c} value={c}>{COLOR_LABEL[c]}</option>)}
+            </select>
+          </div>
+          <div style={{ flex: 1 }}>
+            <span className="font-mono" style={{ fontSize: 10, color: "#52525B", display: "block", marginBottom: 4 }}>Front face</span>
+            <select data-testid="orientation-front-select" value={orientation.front} onChange={(e) => changeFront(e.target.value)} style={selectStyle}>
+              {frontChoices.map((c) => <option key={c} value={c}>{COLOR_LABEL[c]}</option>)}
+            </select>
+          </div>
+        </div>
+        <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
+          How you hold the cube while lettering. Default: white top, green front.
+        </span>
       </Field>
       <Field label="Corner buffer">
         <select data-testid="corner-buffer-select" value={settings.cornerBuffer} onChange={(e) => set("cornerBuffer", e.target.value)} style={selectStyle}>
