@@ -1,4 +1,5 @@
-import React from "react";
+import React, { useMemo } from "react";
+import { orientationPerm } from "../lib/cube.mjs";
 
 const COLORS = {
   U: "#FFFFFF", R: "#C41E3A", F: "#009E60",
@@ -16,19 +17,23 @@ function cellFor(i) {
   return { row: br + Math.floor(local / 3), col: bc + (local % 3) };
 }
 
-export default function CubeNet({ state, highlights = {} }) {
-  // highlights: { bufferIdx, t1Idx, t2Idx }
-  const active = new Set(
-    [highlights.bufferIdx, highlights.t1Idx, highlights.t2Idx].filter((x) => x != null)
-  );
+export default function CubeNet({ state, highlights = {}, orientation }) {
+  // g[worldSlot] = hardware facelet shown at that slot; gInv maps hardware idx -> world slot.
+  const g = useMemo(() => orientationPerm(orientation), [orientation?.top, orientation?.front]);
+  const gInv = useMemo(() => { const inv = new Array(54); g.forEach((h, i) => { inv[h] = i; }); return inv; }, [g]);
+
+  const bufferSlot = highlights.bufferIdx != null ? gInv[highlights.bufferIdx] : null;
+  const t1Slot = highlights.t1Idx != null ? gInv[highlights.t1Idx] : null;
+  const t2Slot = highlights.t2Idx != null ? gInv[highlights.t2Idx] : null;
+  const active = new Set([bufferSlot, t1Slot, t2Slot].filter((x) => x != null));
   const hasHighlight = active.size > 0;
 
   const cells = [];
   for (let i = 0; i < 54; i++) {
     const { row, col } = cellFor(i);
-    const color = COLORS[state[i]] || "#333";
-    const isBuffer = i === highlights.bufferIdx;
-    const isTarget = i === highlights.t1Idx || i === highlights.t2Idx;
+    const color = COLORS[state[g[i]]] || "#333";
+    const isBuffer = i === bufferSlot;
+    const isTarget = i === t1Slot || i === t2Slot;
     const dim = hasHighlight && !active.has(i);
     cells.push(
       <div

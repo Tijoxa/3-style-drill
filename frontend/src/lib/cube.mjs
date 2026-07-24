@@ -213,6 +213,12 @@ export function orientMaps(maps = SCHEMES.speffz, orientation) {
   return { ...maps, corner: remapLetters(maps.corner, g), edge: remapLetters(maps.edge, g) };
 }
 
+// g[worldSlotIdx] = canonical/hardware facelet index shown at that slot for the orientation.
+// Used to rotate the rendered cube net to match how the user holds the cube.
+export function orientationPerm(orientation) {
+  return orientPerm(orientation?.top || "white", orientation?.front || "green");
+}
+
 
 // Group facelets into pieces by cubie position; corners have no zero coord, edges one zero.
 function isCorner(pos) { return pos.every(c => c !== 0); }

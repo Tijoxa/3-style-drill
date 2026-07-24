@@ -398,7 +398,7 @@ export default function App() {
 
         <RecognitionTimer caseStartRef={caseStartRef} caseStoppedRef={caseStoppedRef} pairKey={pairText} />
 
-        <CubeNet state={netState} highlights={highlights} />
+        <CubeNet state={netState} highlights={highlights} orientation={settings.orientation} />
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
           <button data-testid="skip-btn" onClick={skipCase} style={ghostBtn}><SkipForward size={15} /> Skip (Space)</button>
