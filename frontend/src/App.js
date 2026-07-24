@@ -13,6 +13,7 @@ import {
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
 import { fetchHints, STYLE_OPTIONS } from "./lib/blddb";
+import { loadStore as loadFsrs, saveStore as saveFsrs, resetStore as resetFsrs, recordReview, pickWeightedPair } from "./lib/fsrs";
 import CubeNet from "./components/CubeNet";
 
 const STATS_KEY = "bld3style_stats_v1";
@@ -45,7 +46,7 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", orientation: { top: "white", front: "green" }, disabledCases: {} };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", orientation: { top: "white", front: "green" }, distribution: "uniform", srTimeoutMs: 10000, disabledCases: {} };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 
 export default function App() {
@@ -81,6 +82,9 @@ export default function App() {
   const busyRef = useRef(false);
   const refFaceletsRef = useRef(null);   // cube facelets when last declared "solved"
   const rawFaceletsRef = useRef(SOLVED); // last raw facelets from the cube
+  const fsrsRef = useRef(loadFsrs());    // spaced-repetition memory (local)
+  const currentCaseKeyRef = useRef(null);
+  const currentTypeRef = useRef("corner");
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
 
@@ -115,11 +119,16 @@ export default function App() {
       return;
     }
     const cur = cubeStateRef.current;
+    const spaced = s.distribution === "spaced";
     for (let tries = 0; tries < 200; tries++) {
-      const [t1, t2] = validPairs[Math.floor(Math.random() * validPairs.length)];
+      const [t1, t2] = spaced
+        ? pickWeightedPair(validPairs, ([a, b]) => caseKey(s.scheme, type, a, b), fsrsRef.current)
+        : validPairs[Math.floor(Math.random() * validPairs.length)];
       const target = apply3Cycle(cur, [buffer, t1, t2], type, maps);
       if (target !== cur) {
         targetRef.current = target;
+        currentCaseKeyRef.current = caseKey(s.scheme, type, t1, t2);
+        currentTypeRef.current = type;
         caseStoppedRef.current = null;
         if (startImmediately) {
           // After finishing a pair: timer runs right away (don't wait for first move).
@@ -170,6 +179,15 @@ export default function App() {
       return next;
     });
     setTimeout(() => setFlash(null), 180);
+    // Spaced-repetition: update the memory model from the solve time (skip timed-out reps).
+    if (settingsRef.current.distribution === "spaced") {
+      const timeout = settingsRef.current.srTimeoutMs || 10000;
+      const key = currentCaseKeyRef.current;
+      if (key && elapsed > 0 && elapsed < timeout) {
+        recordReview(fsrsRef.current, key, currentTypeRef.current, elapsed);
+        saveFsrs(fsrsRef.current);
+      }
+    }
     setTimeout(() => { buildCase(true); busyRef.current = false; }, 60);
   }, [buildCase]);
 
@@ -297,6 +315,11 @@ export default function App() {
     toast.success("Stats reset");
   };
 
+  const resetSchedule = () => {
+    resetFsrs(fsrsRef.current);
+    toast.success("Spaced-repetition memory reset");
+  };
+
   const avgMs = session.times.length ? session.times.reduce((a, b) => a + b, 0) / session.times.length : 0;
   const lastMs = session.times.length ? session.times[session.times.length - 1] : 0;
   const elapsedMin = (Date.now() - sessionStartRef.current) / 60000;
@@ -422,7 +445,7 @@ export default function App() {
                 <h2 className="font-head" style={{ fontSize: 28, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>{drawer === "settings" ? "Settings" : "Statistics"}</h2>
                 <button data-testid="close-drawer-btn" onClick={() => setDrawer(null)} style={iconBtn}><X size={18} /></button>
               </div>
-              {drawer === "settings" ? <SettingsPanel settings={settings} setSettings={setSettings} resetStats={resetStats} onOpenSubset={() => setSubsetOpen(true)} /> : <StatsPanel lifetime={lifetime} session={session} avgMs={avgMs} />}
+              {drawer === "settings" ? <SettingsPanel settings={settings} setSettings={setSettings} resetStats={resetStats} resetSchedule={resetSchedule} onOpenSubset={() => setSubsetOpen(true)} /> : <StatsPanel lifetime={lifetime} session={session} avgMs={avgMs} />}
             </motion.aside>
           </>
         )}
@@ -1021,7 +1044,7 @@ function bufferOptions(scheme, type) {
   return Object.keys(type === "corner" ? maps.corner : maps.edge).sort();
 }
 
-function SettingsPanel({ settings, setSettings, resetStats, onOpenSubset }) {
+function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpenSubset }) {
   const set = (k, v) => setSettings((s) => ({ ...s, [k]: v }));
   const changeScheme = (scheme) => {
     const s = SCHEMES[scheme] || SCHEMES.speffz;
@@ -1074,6 +1097,38 @@ function SettingsPanel({ settings, setSettings, resetStats, onOpenSubset }) {
       </Field>
       <Toggle label="Sound feedback" testid="sound-toggle" value={settings.sound} onChange={(v) => set("sound", v)} />
       <Toggle label="Show manual move buttons" testid="manual-toggle" value={settings.showManual} onChange={(v) => set("showManual", v)} />
+      <Field label="Case distribution">
+        <select data-testid="distribution-select" value={settings.distribution || "uniform"} onChange={(e) => set("distribution", e.target.value)} style={selectStyle}>
+          <option value="uniform">Uniform (random)</option>
+          <option value="spaced">Spaced repetition (FSRS)</option>
+        </select>
+        <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
+          Spaced repetition shows slower / less-recalled cases more often, graded from your solve time.
+        </span>
+      </Field>
+      {settings.distribution === "spaced" && (
+        <>
+          <Field label="Timeout (case not counted above this)">
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input
+                data-testid="sr-timeout-input"
+                type="number" min="1" max="120" step="1"
+                value={Math.round((settings.srTimeoutMs || 10000) / 1000)}
+                onChange={(e) => {
+                  const v = Math.max(1, Math.min(120, Number(e.target.value) || 10));
+                  set("srTimeoutMs", v * 1000);
+                }}
+                style={{ ...selectStyle, width: 90, boxSizing: "border-box" }}
+              />
+              <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>seconds</span>
+            </div>
+            <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
+              If a solve takes longer, it won't update the schedule (the case stays due).
+            </span>
+          </Field>
+          <button data-testid="reset-schedule-btn" onClick={resetSchedule} style={{ ...ghostBtn, justifyContent: "center" }}>Reset spaced-repetition memory</button>
+        </>
+      )}
       <div>
         <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA", display: "block", marginBottom: 8 }}>Case subset</span>
         <button data-testid="open-subset-btn" onClick={onOpenSubset} style={{ ...moveBtn, width: "100%", padding: "11px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "var(--surface-2)" }}>
