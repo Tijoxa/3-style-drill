@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
   Bluetooth, BluetoothConnected, Settings as SettingsIcon, BarChart3,
-  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info, ChevronDown, AlertTriangle,
+  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info, ChevronDown, AlertTriangle, Pause, Play,
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
@@ -77,6 +77,7 @@ export default function App() {
   const [hintOpen, setHintOpen] = useState(false);
   const [subsetOpen, setSubsetOpen] = useState(false);
   const [lifetime, setLifetime] = useState(() => loadJSON(STATS_KEY, { totalCases: 0, totalTimeMs: 0, bestStreak: 0, perDay: {} }));
+  const [isTimerPaused, setIsTimerPaused] = useState(false);
 
   const [session, setSession] = useState({ solved: 0, streak: 0, bestStreak: 0, times: [] });
   const sessionStartRef = useRef(Date.now());
@@ -101,6 +102,8 @@ export default function App() {
   const tapRef = useRef({ timer: null });
   const categoryCacheRef = useRef({}); // category -> { key: recommendedAlg }
   const [catState, setCatState] = useState({ loading: false, error: null });
+  const isTimerPausedRef = useRef(isTimerPaused);
+  useEffect(() => { isTimerPausedRef.current = isTimerPaused; }, [isTimerPaused]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { btStatusRef.current = btStatus; }, [btStatus]);
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
@@ -134,7 +137,7 @@ export default function App() {
           currentCaseKeyRef.current = `${s.scheme}:${m}:${kkey}`;
           currentTypeRef.current = m;
           caseStoppedRef.current = null;
-          if (startImmediately) {
+          if (startImmediately && !isTimerPausedRef.current) {
             caseStartedRef.current = true;
             caseStartRef.current = Date.now();
             noMoveTimeoutRef.current = setTimeout(() => {
@@ -193,7 +196,7 @@ export default function App() {
         currentCaseKeyRef.current = caseKey(s.scheme, type, t1, t2);
         currentTypeRef.current = type;
         caseStoppedRef.current = null;
-        if (startImmediately) {
+        if (startImmediately && !isTimerPausedRef.current) {
           // After finishing a pair: timer runs right away (don't wait for first move).
           caseStartedRef.current = true;
           caseStartRef.current = Date.now();
@@ -263,7 +266,7 @@ export default function App() {
     // A real move: cancel the inactivity timeout; start the timer if it was waiting.
     if (newState !== prev && !busyRef.current) {
       if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
-      if (!caseStartedRef.current && caseStoppedRef.current == null) {
+      if (!caseStartedRef.current && caseStoppedRef.current == null && !isTimerPausedRef.current) {
         caseStartedRef.current = true;
         caseStartRef.current = Date.now();
       }
@@ -303,7 +306,7 @@ export default function App() {
 
   // (Re)start the recognition timer on the current case (used for manual, no-cube practice).
   const startTiming = useCallback(() => {
-    if (!targetRef.current) return;
+    if (!targetRef.current || isTimerPausedRef.current) return;
     if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
     caseStartedRef.current = true;
     caseStartRef.current = Date.now();
@@ -312,6 +315,24 @@ export default function App() {
       caseStoppedRef.current = caseStartRef.current ? Date.now() - caseStartRef.current : 0;
       noMoveTimeoutRef.current = null;
     }, 30000);
+  }, []);
+
+  const togglePauseTimer = useCallback(() => {
+    setIsTimerPaused((prev) => {
+      const next = !prev;
+      if (next) {
+        if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
+        if (caseStartRef.current != null && caseStoppedRef.current == null) {
+          caseStoppedRef.current = Date.now() - caseStartRef.current;
+        }
+      } else {
+        if (caseStoppedRef.current != null && caseStartRef.current != null) {
+          caseStartRef.current = Date.now() - caseStoppedRef.current;
+          caseStoppedRef.current = null;
+        }
+      }
+      return next;
+    });
   }, []);
 
   // Reset the current case's timer back to 0 and stop it (no time recorded, case stays).
@@ -373,13 +394,15 @@ export default function App() {
       getState: () => cubeStateRef.current,
       getTarget: () => targetRef.current,
       getSuccess: () => successRef.current,
+      isTimerPaused: () => isTimerPausedRef.current,
+      togglePauseTimer: () => togglePauseTimer(),
       solveCurrent: () => { if (targetRef.current) onStateChanged(targetRef.current); },
       openMacPrompt: () => new Promise((resolve) => setMacPrompt({ deviceName: "GAN-TEST", resolve })),
       feedFacelets: (f) => handleFacelets(f),
       markSolved: () => resetCube(),
     };
     window.__cube = { SOLVED, applyMove, applyAlg, scramble };
-  }, [onStateChanged, handleFacelets, resetCube]);
+  }, [onStateChanged, handleFacelets, resetCube, togglePauseTimer]);
 
   // keyboard controls
   useEffect(() => {
@@ -532,14 +555,31 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
 
-        <RecognitionTimer caseStartRef={caseStartRef} caseStoppedRef={caseStoppedRef} pairKey={pairText} />
+        <RecognitionTimer caseStartRef={caseStartRef} caseStoppedRef={caseStoppedRef} pairKey={pairText} isPaused={isTimerPaused} />
 
         <CubeNet state={netState} highlights={highlights} orientation={settings.orientation} />
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", alignItems: "center" }}>
           <button data-testid="skip-btn" onClick={skipCase} style={ghostBtn}><SkipForward size={15} /> Skip (Backspace)</button>
           <button data-testid="hint-btn" onClick={() => setHintOpen(true)} style={{ ...ghostBtn, borderColor: "var(--active)", color: "#fff" }}><Lightbulb size={15} /> Hint (H)</button>
           <button data-testid="reset-cube-btn" onClick={resetCube} style={ghostBtn}><RotateCcw size={15} /> Cube Solved</button>
+          <button
+            data-testid="toggle-pause-btn"
+            onClick={togglePauseTimer}
+            title={isTimerPaused ? "Resume timer" : "Pause timer"}
+            aria-label={isTimerPaused ? "Resume timer" : "Pause timer"}
+            style={{
+              ...ghostBtn,
+              width: 36,
+              height: 36,
+              padding: 0,
+              justifyContent: "center",
+              borderColor: isTimerPaused ? "#F59E0B" : "var(--line)",
+              color: isTimerPaused ? "#F59E0B" : "#A1A1AA",
+            }}
+          >
+            {isTimerPaused ? <Play size={15} /> : <Pause size={15} />}
+          </button>
         </div>
 
         <div data-testid="trainer-help" className="overline" style={{ color: "#3f3f46", fontSize: 11, textAlign: "center", lineHeight: 1.7, letterSpacing: "0.06em" }}>
@@ -1404,20 +1444,21 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
   );
 }
 
-function RecognitionTimer({ caseStartRef, caseStoppedRef, pairKey }) {
+function RecognitionTimer({ caseStartRef, caseStoppedRef, pairKey, isPaused }) {
   const [, force] = useState(0);
   useEffect(() => {
+    if (isPaused) return;
     const id = setInterval(() => force((v) => v + 1), 100);
     return () => clearInterval(id);
-  }, [pairKey]);
+  }, [pairKey, isPaused]);
   let ms = 0, running = false;
   if (caseStoppedRef.current != null) { ms = caseStoppedRef.current; }
-  else if (caseStartRef.current != null) { ms = Date.now() - caseStartRef.current; running = true; }
+  else if (caseStartRef.current != null && !isPaused) { ms = Date.now() - caseStartRef.current; running = true; }
   // Greyed when waiting for the first move or stopped; brighter while actively running.
   return (
-    <div data-testid="recognition-timer" data-timer-state={caseStoppedRef.current != null ? "stopped" : running ? "running" : "waiting"}
-      className="font-mono" style={{ color: running ? "#D4D4D8" : "#52525B", fontSize: 14, transition: "color 150ms ease" }}>
-      {(ms / 1000).toFixed(1)}s
+    <div data-testid="recognition-timer" data-timer-state={isPaused ? "paused" : caseStoppedRef.current != null ? "stopped" : running ? "running" : "waiting"}
+      className="font-mono" style={{ color: isPaused ? "#F59E0B" : running ? "#D4D4D8" : "#52525B", fontSize: 14, transition: "color 150ms ease", display: "flex", alignItems: "center", gap: 6 }}>
+      {(ms / 1000).toFixed(1)}s {isPaused && <span style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", color: "#F59E0B", fontWeight: 700 }}>(PAUSED)</span>}
     </div>
   );
 }
