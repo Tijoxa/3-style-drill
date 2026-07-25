@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
   Bluetooth, BluetoothConnected, Settings as SettingsIcon, BarChart3,
-  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info, ChevronDown,
+  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info, ChevronDown, AlertTriangle,
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
@@ -73,6 +73,7 @@ export default function App() {
   const [battery, setBattery] = useState(null);
   const [drawer, setDrawer] = useState(null); // 'settings' | 'stats' | null
   const [macPrompt, setMacPrompt] = useState(null); // { deviceName, resolve } | null
+  const [confirmReset, setConfirmReset] = useState(false);
   const [hintOpen, setHintOpen] = useState(false);
   const [subsetOpen, setSubsetOpen] = useState(false);
   const [lifetime, setLifetime] = useState(() => loadJSON(STATS_KEY, { totalCases: 0, totalTimeMs: 0, bestStreak: 0, perDay: {} }));
@@ -435,13 +436,14 @@ export default function App() {
   }, [macPrompt]);
 
   const resetStats = () => {
-    const empty = { totalCases: 0, totalTimeMs: 0, bestStreak: 0, perDay: {} };
-    localStorage.setItem(STATS_KEY, JSON.stringify(empty));
-    setLifetime(empty);
+    // Remove the client-side stored statistics entirely.
+    localStorage.removeItem(STATS_KEY);
+    setLifetime({ totalCases: 0, totalTimeMs: 0, bestStreak: 0, perDay: {} });
     streakRef.current = 0;
     setSession({ solved: 0, streak: 0, bestStreak: 0, times: [] });
     sessionStartRef.current = Date.now();
-    toast.success("Stats reset");
+    setConfirmReset(false);
+    toast.success("All statistics deleted");
   };
 
   const resetSchedule = () => {
@@ -583,7 +585,7 @@ export default function App() {
                 <h2 className="font-head" style={{ fontSize: 28, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>{drawer === "settings" ? "Settings" : "Statistics"}</h2>
                 <button data-testid="close-drawer-btn" onClick={() => setDrawer(null)} style={iconBtn}><X size={18} /></button>
               </div>
-              {drawer === "settings" ? <SettingsPanel settings={settings} setSettings={setSettings} resetStats={resetStats} resetSchedule={resetSchedule} onOpenSubset={() => setSubsetOpen(true)} /> : <StatsPanel lifetime={lifetime} session={session} avgMs={avgMs} />}
+              {drawer === "settings" ? <SettingsPanel settings={settings} setSettings={setSettings} resetStats={() => setConfirmReset(true)} resetSchedule={resetSchedule} onOpenSubset={() => setSubsetOpen(true)} /> : <StatsPanel lifetime={lifetime} session={session} avgMs={avgMs} />}
             </motion.aside>
           </>
         )}
@@ -593,6 +595,19 @@ export default function App() {
       <AnimatePresence>
         {macPrompt && (
           <MacModal deviceName={macPrompt.deviceName} onSubmit={submitMac} onSaveDefault={(mac) => setSettings((s) => ({ ...s, macAddress: mac }))} />
+        )}
+      </AnimatePresence>
+
+      {/* Reset statistics confirmation modal */}
+      <AnimatePresence>
+        {confirmReset && (
+          <ConfirmDialog
+            title="Delete all statistics?"
+            message="This permanently removes all locally-stored statistics from this browser (total cases, best streak, time and daily history). This cannot be undone."
+            confirmLabel="Delete everything"
+            onConfirm={resetStats}
+            onCancel={() => setConfirmReset(false)}
+          />
         )}
       </AnimatePresence>
 
@@ -674,6 +689,48 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
           <button data-testid="mac-submit-btn" onClick={submit} disabled={!valid}
             style={{ ...moveBtn, minWidth: 120, padding: "9px 18px", opacity: valid ? 1 : 0.4, background: "var(--active)", borderColor: "var(--active)" }}>
             Connect
+          </button>
+        </div>
+      </motion.div>
+    </>,
+    document.body
+  );
+}
+
+function ConfirmDialog({ title, message, confirmLabel = "Confirm", cancelLabel = "Cancel", onConfirm, onCancel }) {
+  const isMobile = useIsMobile();
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); onCancel(); }
+      else if (e.key === "Enter") { e.preventDefault(); onConfirm(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel, onConfirm]);
+  const modalStyle = isMobile
+    ? { position: "fixed", top: "50%", left: 12, right: 12, transform: "translateY(-50%)", width: "auto", maxHeight: "88dvh", overflowY: "auto", boxSizing: "border-box" }
+    : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 440, maxWidth: "94vw", maxHeight: "92dvh", overflowY: "auto", boxSizing: "border-box" };
+  return createPortal(
+    <>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        onClick={onCancel}
+        style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 80 }} />
+      <motion.div
+        data-testid="confirm-dialog"
+        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+        transition={{ duration: 0.15 }}
+        style={{ ...modalStyle, background: "var(--surface)", border: "1px solid var(--error)", borderRadius: 14, padding: isMobile ? 20 : 26, zIndex: 81 }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <AlertTriangle size={22} style={{ color: "var(--error)", flexShrink: 0 }} />
+          <h2 className="font-head" style={{ fontSize: 22, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>{title}</h2>
+        </div>
+        <p className="font-mono" style={{ color: "#A1A1AA", fontSize: 13, lineHeight: 1.7, marginTop: 14 }}>{message}</p>
+        <div style={{ display: "flex", gap: 10, marginTop: 24, justifyContent: "flex-end", flexWrap: "wrap" }}>
+          <button data-testid="confirm-cancel-btn" onClick={onCancel} style={ghostBtn}>{cancelLabel}</button>
+          <button data-testid="confirm-accept-btn" autoFocus onClick={onConfirm}
+            style={{ ...moveBtn, minWidth: 140, padding: "9px 18px", background: "var(--error)", borderColor: "var(--error)", color: "#fff" }}>
+            {confirmLabel}
           </button>
         </div>
       </motion.div>
