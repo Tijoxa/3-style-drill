@@ -27,6 +27,8 @@ const CATEGORY_META = {
 };
 const FLIP_COUNTS_AVAILABLE = [2];
 const TWIST_COUNTS_AVAILABLE = [2, 3, 4, 5, 6, 7, 8];
+// Maps the active drill mode to the matching Case Subset view (parity/ltct have no subset config → corners).
+const MODE_TO_SUBSET_VIEW = { corners: "corner", edges: "edge", flips: "flips", twists: "twists", parity: "corner", ltct: "corner" };
 const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
 const getMaps = (scheme, orientation) => orientMaps(SCHEMES[scheme] || SCHEMES.speffz, orientation);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -555,7 +557,7 @@ export default function App() {
       {/* Case subset selector grid */}
       <AnimatePresence>
         {subsetOpen && (
-          <SubsetModal settings={settings} setSettings={setSettings} onClose={() => setSubsetOpen(false)} />
+          <SubsetModal settings={settings} setSettings={setSettings} initialView={MODE_TO_SUBSET_VIEW[mode] || "corner"} onClose={() => setSubsetOpen(false)} />
         )}
       </AnimatePresence>
     </div>
@@ -632,11 +634,11 @@ const SUBSET_COLORS = {
 };
 const STRIPES = "repeating-linear-gradient(45deg, rgba(255,255,255,0.28) 0 2px, transparent 2px 5px)";
 
-function SubsetModal({ settings, setSettings, onClose }) {
+function SubsetModal({ settings, setSettings, initialView = "corner", onClose }) {
   const isMobile = useIsMobile();
   const scheme = settings.scheme;
   const maps = getMaps(scheme, settings.orientation);
-  const [view, setView] = useState("corner"); // corner | edge | flips | twists
+  const [view, setView] = useState(initialView); // corner | edge | flips | twists (synced with active drill mode on open)
   const type = view === "edge" ? "edge" : "corner";
   const isPieceView = view === "flips" || view === "twists";
   const buffer = type === "corner" ? settings.cornerBuffer : settings.edgeBuffer;
