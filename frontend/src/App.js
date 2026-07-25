@@ -96,15 +96,21 @@ export default function App() {
   const fsrsRef = useRef(loadFsrs());    // spaced-repetition memory (local)
   const currentCaseKeyRef = useRef(null);
   const currentTypeRef = useRef("corner");
+  const btStatusRef = useRef("disconnected");
+  const tapRef = useRef({ timer: null });
   const categoryCacheRef = useRef({}); // category -> { key: recommendedAlg }
   const [catState, setCatState] = useState({ loading: false, error: null });
   useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { btStatusRef.current = btStatus; }, [btStatus]);
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
 
   const buildCase = useCallback((startImmediately = false) => {
     if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
     const m = modeRef.current;
     const s = settingsRef.current;
+    // Without a connected cube (manual practice) the timer runs from when the pair appears,
+    // so it can be validated by tapping the screen / pressing space.
+    if (!startImmediately && btStatusRef.current !== "connected") startImmediately = true;
 
     // --- Extra categories (flips / twists / parity / ltct&t2c): drill blddb algorithm sets ---
     if (NEW_CATEGORIES.includes(m)) {
@@ -210,10 +216,12 @@ export default function App() {
     }
   }, []);
 
-  const onSuccess = useCallback(() => {
+  const onSuccess = useCallback((capturedElapsed) => {
     if (busyRef.current) return;
     busyRef.current = true;
-    const elapsed = caseStoppedRef.current != null ? caseStoppedRef.current : (caseStartRef.current ? Date.now() - caseStartRef.current : 0);
+    const elapsed = capturedElapsed != null
+      ? capturedElapsed
+      : (caseStoppedRef.current != null ? caseStoppedRef.current : (caseStartRef.current ? Date.now() - caseStartRef.current : 0));
     if (settingsRef.current.sound) beep(880, true);
     setFlash("ok");
     const newStreak = streakRef.current + 1;
@@ -295,6 +303,52 @@ export default function App() {
     buildCase();
   }, [buildCase]);
 
+  // (Re)start the recognition timer on the current case (used for manual, no-cube practice).
+  const startTiming = useCallback(() => {
+    if (!targetRef.current) return;
+    if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
+    caseStartedRef.current = true;
+    caseStartRef.current = Date.now();
+    caseStoppedRef.current = null;
+    noMoveTimeoutRef.current = setTimeout(() => {
+      caseStoppedRef.current = caseStartRef.current ? Date.now() - caseStartRef.current : 0;
+      noMoveTimeoutRef.current = null;
+    }, 30000);
+  }, []);
+
+  // Reset the current case's timer back to 0 and stop it (no time recorded, case stays).
+  const resetAndStop = useCallback(() => {
+    if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
+    caseStartedRef.current = false;
+    caseStartRef.current = null;
+    caseStoppedRef.current = null;
+    if (settingsRef.current.sound) beep(300, false);
+  }, []);
+
+  // Space / single screen tap: validate the current time (record + next case), or (re)start the timer if stopped.
+  const validate = useCallback(() => {
+    if (busyRef.current || !targetRef.current) return;
+    const running = caseStartRef.current != null && caseStoppedRef.current == null;
+    if (running) onSuccess(Date.now() - caseStartRef.current);
+    else startTiming();
+  }, [onSuccess, startTiming]);
+
+  // Screen tap: single tap = validate, double tap = reset & stop. Ignores taps on interactive controls.
+  const handleScreenTap = useCallback((e) => {
+    if (drawer || hintOpen || subsetOpen || macPrompt) return;
+    const el = e.target;
+    if (el && el.closest && el.closest("button, a, input, select, textarea")) return;
+    const t = tapRef.current;
+    if (t.timer) { clearTimeout(t.timer); t.timer = null; resetAndStop(); return; }
+    const running = caseStartRef.current != null && caseStoppedRef.current == null;
+    const captured = running ? Date.now() - caseStartRef.current : null;
+    t.timer = setTimeout(() => {
+      t.timer = null;
+      if (captured != null) onSuccess(captured);
+      else startTiming();
+    }, 250);
+  }, [drawer, hintOpen, subsetOpen, macPrompt, onSuccess, startTiming, resetAndStop]);
+
   // init first case + rebuild on mode / scheme / buffer change
   useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts]);
 
@@ -332,9 +386,11 @@ export default function App() {
   // keyboard controls
   useEffect(() => {
     const handler = (e) => {
-      if (drawer || hintOpen || subsetOpen) return;
+      if (drawer || hintOpen || subsetOpen || macPrompt) return;
       const k = e.key;
-      if (k === " ") { e.preventDefault(); skipCase(); return; }
+      if (k === "Backspace") { e.preventDefault(); skipCase(); return; }
+      if (k === " ") { e.preventDefault(); validate(); return; }
+      if (k === "Escape") { e.preventDefault(); resetAndStop(); return; }
       if (k.toLowerCase() === "h") { e.preventDefault(); setHintOpen(true); return; }
       const map = { u: "U", r: "R", f: "F", d: "D", l: "L", b: "B" };
       const face = map[k.toLowerCase()];
@@ -342,7 +398,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [doMove, skipCase, drawer, hintOpen, subsetOpen]);
+  }, [doMove, skipCase, validate, resetAndStop, drawer, hintOpen, subsetOpen, macPrompt]);
 
   const handleConnect = useCallback(async () => {
     if (btStatus === "connected") { await btDisconnect(); setBtStatus("disconnected"); setCubeName(""); setBattery(null); return; }
@@ -456,7 +512,7 @@ export default function App() {
       </header>
 
       {/* Center */}
-      <main style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, padding: 20 }}>
+      <main data-testid="trainer-main" onClick={handleScreenTap} style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, padding: 20, cursor: "pointer" }}>
         <div className="overline" style={{ color: "#52525B", fontSize: 12 }}>
           {NEW_CATEGORIES.includes(mode)
             ? `${CATEGORY_META[mode].short} · ${(SCHEMES[settings.scheme] || SCHEMES.speffz).name}`
@@ -482,9 +538,13 @@ export default function App() {
         <CubeNet state={netState} highlights={highlights} orientation={settings.orientation} />
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
-          <button data-testid="skip-btn" onClick={skipCase} style={ghostBtn}><SkipForward size={15} /> Skip (Space)</button>
+          <button data-testid="skip-btn" onClick={skipCase} style={ghostBtn}><SkipForward size={15} /> Skip (Backspace)</button>
           <button data-testid="hint-btn" onClick={() => setHintOpen(true)} style={{ ...ghostBtn, borderColor: "var(--active)", color: "#fff" }}><Lightbulb size={15} /> Hint (H)</button>
           <button data-testid="reset-cube-btn" onClick={resetCube} style={ghostBtn}><RotateCcw size={15} /> Cube Solved</button>
+        </div>
+
+        <div data-testid="trainer-help" className="overline" style={{ color: "#3f3f46", fontSize: 11, textAlign: "center", lineHeight: 1.7, letterSpacing: "0.06em" }}>
+          Tap screen / Space = validate · Double-tap / Esc = reset timer · Backspace = skip
         </div>
       </main>
 
