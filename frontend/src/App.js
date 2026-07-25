@@ -839,12 +839,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
-          <select data-testid="subset-view-select" value={view} onChange={(e) => setView(e.target.value)} style={{ ...selectStyle, minWidth: 180 }}>
-            <option value="corner">Corners</option>
-            <option value="edge">Edges</option>
-            <option value="flips">Edge flips</option>
-            <option value="twists">Corner twists</option>
-          </select>
+          <SubsetViewSwitch view={view} setView={setView} />
           {!isPieceView && (
             <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
               buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} pairs active
@@ -998,6 +993,49 @@ function SourceInfo({ sources, testid }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function SubsetViewSwitch({ view, setView }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+  const MORE = [["flips", "Edge flips", "EDGE FLIPS"], ["twists", "Corner twists", "CORNER TWISTS"]];
+  const moreActive = view === "flips" || view === "twists";
+  const moreLabel = moreActive ? MORE.find((m) => m[0] === view)[2] : "MORE";
+  return (
+    <div data-testid="subset-view-switch" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface)", position: "relative" }}>
+      {[["corner", "Corners"], ["edge", "Edges"]].map(([v, l], idx) => (
+        <button key={v} data-testid={`subset-view-${v}`} onClick={() => { setView(v); setOpen(false); }} className="overline font-head"
+          style={{ padding: "8px 16px", fontSize: 12, letterSpacing: "0.12em", cursor: "pointer", border: "none",
+            background: view === v ? "var(--surface-2)" : "transparent", color: view === v ? "#fff" : "#7a7a7a",
+            borderRadius: view === v && idx === 0 ? "9px 0 0 9px" : "0px",
+            boxShadow: view === v ? "inset 0 0 0 1px var(--active)" : "none" }}>{l}</button>
+      ))}
+      <div ref={ref} style={{ position: "relative", display: "flex" }}>
+        <button data-testid="subset-view-more-btn" onClick={() => setOpen((o) => !o)} className="overline font-head"
+          style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, fontSize: 12, letterSpacing: "0.12em", cursor: "pointer", whiteSpace: "nowrap", border: "none",
+            background: moreActive ? "var(--surface-2)" : "transparent", color: moreActive ? "#fff" : "#7a7a7a",
+            borderRadius: "0 9px 9px 0", boxShadow: moreActive ? "inset 0 0 0 1px var(--active)" : "none" }}>
+          {moreLabel} <ChevronDown size={13} />
+        </button>
+        {open && (
+          <div data-testid="subset-view-more-menu" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 20, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 6, minWidth: 170, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
+            {MORE.map(([v, l]) => (
+              <button key={v} data-testid={`subset-view-${v}`} onClick={() => { setView(v); setOpen(false); }} className="font-mono"
+                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 10px", fontSize: 13, cursor: "pointer", border: "none", borderRadius: 8,
+                  background: view === v ? "var(--surface)" : "transparent", color: view === v ? "#fff" : "#A1A1AA" }}>
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
