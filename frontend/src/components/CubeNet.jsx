@@ -25,7 +25,10 @@ export default function CubeNet({ state, highlights = {}, orientation }) {
   const bufferSlot = highlights.bufferIdx != null ? gInv[highlights.bufferIdx] : null;
   const t1Slot = highlights.t1Idx != null ? gInv[highlights.t1Idx] : null;
   const t2Slot = highlights.t2Idx != null ? gInv[highlights.t2Idx] : null;
-  const active = new Set([bufferSlot, t1Slot, t2Slot].filter((x) => x != null));
+  // Optional multi-sticker highlight set (used by flips/twists/parity/ltct cases).
+  const extraSlots = Array.isArray(highlights.set) ? highlights.set.map((h) => gInv[h]).filter((x) => x != null) : [];
+  const extraSet = new Set(extraSlots);
+  const active = new Set([bufferSlot, t1Slot, t2Slot, ...extraSlots].filter((x) => x != null));
   const hasHighlight = active.size > 0;
 
   const cells = [];
@@ -33,7 +36,7 @@ export default function CubeNet({ state, highlights = {}, orientation }) {
     const { row, col } = cellFor(i);
     const color = COLORS[state[g[i]]] || "#333";
     const isBuffer = i === bufferSlot;
-    const isTarget = i === t1Slot || i === t2Slot;
+    const isTarget = i === t1Slot || i === t2Slot || extraSet.has(i);
     const dim = hasHighlight && !active.has(i);
     cells.push(
       <div

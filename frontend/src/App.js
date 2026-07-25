@@ -5,19 +5,28 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
   Bluetooth, BluetoothConnected, Settings as SettingsIcon, BarChart3,
-  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info,
+  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info, ChevronDown,
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
-  orientMaps, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR,
+  orientMaps, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
-import { fetchHints, STYLE_OPTIONS } from "./lib/blddb";
+import { fetchHints, fetchCaseHints, STYLE_OPTIONS, CATEGORY_STYLE_OPTIONS, loadCategoryCases } from "./lib/blddb";
 import { loadStore as loadFsrs, saveStore as saveFsrs, resetStore as resetFsrs, recordReview, pickWeightedPair } from "./lib/fsrs";
 import CubeNet from "./components/CubeNet";
 
 const STATS_KEY = "bld3style_stats_v1";
 const SETTINGS_KEY = "bld3style_settings_v1";
+const NEW_CATEGORIES = ["flips", "twists", "parity", "ltct"];
+const CATEGORY_META = {
+  flips:  { label: "Edge Flips",    short: "EDGE FLIPS",    url: "https://v2.blddb.net/flips" },
+  twists: { label: "Corner Twists", short: "CORNER TWISTS", url: "https://v2.blddb.net/twists" },
+  parity: { label: "Parity",        short: "PARITY",        url: "https://v2.blddb.net/parity" },
+  ltct:   { label: "LTCT & T2C",    short: "LTCT / T2C",    url: "https://v2.blddb.net/ltct" },
+};
+const FLIP_COUNTS_AVAILABLE = [2];
+const TWIST_COUNTS_AVAILABLE = [2, 3, 4, 5, 6, 7, 8];
 const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
 const getMaps = (scheme, orientation) => orientMaps(SCHEMES[scheme] || SCHEMES.speffz, orientation);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -46,7 +55,7 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", orientation: { top: "white", front: "green" }, distribution: "uniform", srTimeoutMs: 10000, disabledCases: {} };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], orientation: { top: "white", front: "green" }, distribution: "uniform", srTimeoutMs: 10000, disabledCases: {} };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 
 export default function App() {
@@ -85,6 +94,8 @@ export default function App() {
   const fsrsRef = useRef(loadFsrs());    // spaced-repetition memory (local)
   const currentCaseKeyRef = useRef(null);
   const currentTypeRef = useRef("corner");
+  const categoryCacheRef = useRef({}); // category -> { key: recommendedAlg }
+  const [catState, setCatState] = useState({ loading: false, error: null });
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
 
@@ -92,6 +103,52 @@ export default function App() {
     if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
     const m = modeRef.current;
     const s = settingsRef.current;
+
+    // --- Extra categories (flips / twists / parity / ltct&t2c): drill blddb algorithm sets ---
+    if (NEW_CATEGORIES.includes(m)) {
+      const recMap = categoryCacheRef.current[m];
+      const catMaps = getMaps(s.scheme, s.orientation);
+      const clearCase = () => { targetRef.current = null; caseStartRef.current = null; caseStartedRef.current = false; caseStoppedRef.current = null; setPair(null); setHighlights({}); };
+      if (!recMap) { clearCase(); return; }
+      let keys = Object.keys(recMap);
+      if (m === "flips") keys = keys.filter((k) => (s.flipCounts || [2]).includes(k.length));
+      else if (m === "twists") keys = keys.filter((k) => (s.twistCounts || [2]).includes(k.length));
+      if (!keys.length) { clearCase(); return; }
+      const cur = cubeStateRef.current;
+      const spaced = s.distribution === "spaced";
+      for (let tries = 0; tries < 200; tries++) {
+        const kkey = spaced
+          ? pickWeightedPair(keys, (k) => `${s.scheme}:${m}:${k}`, fsrsRef.current)
+          : keys[Math.floor(Math.random() * keys.length)];
+        const alg = recMap[kkey];
+        if (!alg) continue;
+        const target = applyAlg(cur, alg);
+        if (target !== cur) {
+          targetRef.current = target;
+          currentCaseKeyRef.current = `${s.scheme}:${m}:${kkey}`;
+          currentTypeRef.current = m;
+          caseStoppedRef.current = null;
+          if (startImmediately) {
+            caseStartedRef.current = true;
+            caseStartRef.current = Date.now();
+            noMoveTimeoutRef.current = setTimeout(() => {
+              caseStoppedRef.current = caseStartRef.current ? Date.now() - caseStartRef.current : 0;
+              noMoveTimeoutRef.current = null;
+            }, 30000);
+          } else {
+            caseStartedRef.current = false;
+            caseStartRef.current = null;
+          }
+          setPair({ code: kkey, display: caseCodeToDisplay(kkey, m, catMaps), type: m });
+          const set = [];
+          for (let i = 0; i < 54; i++) if (target[i] !== cur[i]) set.push(i);
+          setHighlights({ set });
+          return;
+        }
+      }
+      return;
+    }
+
     const maps = getMaps(s.scheme, s.orientation);
     const type = m === "corners" ? "corner" : "edge";
     const list = Object.keys(type === "corner" ? maps.corner : maps.edge);
@@ -237,7 +294,24 @@ export default function App() {
   }, [buildCase]);
 
   // init first case + rebuild on mode / scheme / buffer change
-  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases]);
+  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts]);
+
+  // Load the algorithm set for extra categories (flips/twists/parity/ltct), then build a case.
+  useEffect(() => {
+    if (!NEW_CATEGORIES.includes(mode)) return;
+    if (categoryCacheRef.current[mode]) { buildCase(); return; }
+    let cancelled = false;
+    setCatState({ loading: true, error: null });
+    loadCategoryCases(mode)
+      .then((rec) => {
+        if (cancelled) return;
+        categoryCacheRef.current[mode] = rec;
+        setCatState({ loading: false, error: null });
+        buildCase();
+      })
+      .catch((e) => { if (!cancelled) setCatState({ loading: false, error: e.message || String(e) }); });
+    return () => { cancelled = true; };
+  }, [mode, buildCase]);
 
   // test/debug hook: lets automated tests simulate execution / cube facelets without Bluetooth
   useEffect(() => {
@@ -325,7 +399,7 @@ export default function App() {
   const elapsedMin = (Date.now() - sessionStartRef.current) / 60000;
   const cpm = elapsedMin > 0.05 ? session.solved / elapsedMin : 0;
 
-  const pairText = pair ? `${pair.t1}${pair.t2}`.toUpperCase() : "--";
+  const pairText = pair ? (pair.display != null ? pair.display : `${pair.t1}${pair.t2}`.toUpperCase()) : (catState.loading ? "…" : "--");
   const flashColor = flash === "ok" ? "var(--success)" : flash === "err" ? "var(--error)" : "#fff";
 
   return (
@@ -353,7 +427,7 @@ export default function App() {
         </div>
 
         {/* mode switcher */}
-        <div data-testid="mode-switcher" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden", background: "var(--surface)", ...(isMobile ? { order: 3, flexBasis: "100%", justifyContent: "center" } : {}) }}>
+        <div data-testid="mode-switcher" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, overflow: "visible", background: "var(--surface)", ...(isMobile ? { order: 3, flexBasis: "100%", justifyContent: "center" } : {}) }}>
           {["corners", "edges"].map((m, idx) => (
             <button
               key={m}
@@ -365,14 +439,12 @@ export default function App() {
                 background: mode === m ? "var(--surface-2)" : "transparent",
                 color: mode === m ? "#fff" : "#7a7a7a",
                 border: "none",
-                // Distinct corner rounding per active button segment so they flush cleanly against the wrapper shell
-                borderRadius: mode === m 
-                  ? (idx === 0 ? "9px 0 0 9px" : "0 9px 9px 0") 
-                  : "0px",
+                borderRadius: mode === m && idx === 0 ? "9px 0 0 9px" : "0px",
                 boxShadow: mode === m ? "inset 0 0 0 1px var(--active)" : "none",
               }}
             >{m}</button>
           ))}
+          <ModeDropdown mode={mode} setMode={setMode} isMobile={isMobile} />
         </div>
 
         <div style={{ display: "flex", gap: 8, order: isMobile ? 2 : 0 }}>
@@ -384,7 +456,9 @@ export default function App() {
       {/* Center */}
       <main style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, padding: 20 }}>
         <div className="overline" style={{ color: "#52525B", fontSize: 12 }}>
-          {mode === "corners" ? "CORNER 3-STYLE" : "EDGE 3-STYLE"} · BUFFER {(mode === "corners" ? settings.cornerBuffer : settings.edgeBuffer).toUpperCase()} · {(SCHEMES[settings.scheme] || SCHEMES.speffz).name}
+          {NEW_CATEGORIES.includes(mode)
+            ? `${CATEGORY_META[mode].short} · ${(SCHEMES[settings.scheme] || SCHEMES.speffz).name}`
+            : `${mode === "corners" ? "CORNER 3-STYLE" : "EDGE 3-STYLE"} · BUFFER ${(mode === "corners" ? settings.cornerBuffer : settings.edgeBuffer).toUpperCase()} · ${(SCHEMES[settings.scheme] || SCHEMES.speffz).name}`}
         </div>
 
         <AnimatePresence mode="popLayout">
@@ -469,10 +543,10 @@ export default function App() {
           <HintModal
             pair={pair}
             pairText={pairText}
-            buffer={mode === "corners" ? settings.cornerBuffer : settings.edgeBuffer}
+            buffer={mode === "corners" ? settings.cornerBuffer : (mode === "edges" ? settings.edgeBuffer : "")}
             maps={getMaps(settings.scheme, settings.orientation)}
-            style={pair.type === "corner" ? settings.cornerStyle : settings.edgeStyle}
-            setStyle={(v) => setSettings((s) => (pair.type === "corner" ? { ...s, cornerStyle: v } : { ...s, edgeStyle: v }))}
+            style={NEW_CATEGORIES.includes(mode) ? (settings.catStyle || "nightmare") : (pair.type === "corner" ? settings.cornerStyle : settings.edgeStyle)}
+            setStyle={(v) => setSettings((s) => (NEW_CATEGORIES.includes(mode) ? { ...s, catStyle: v } : (pair.type === "corner" ? { ...s, cornerStyle: v } : { ...s, edgeStyle: v })))}
             onClose={() => setHintOpen(false)}
           />
         )}
@@ -688,6 +762,14 @@ function SubsetModal({ settings, setSettings, onClose }) {
   };
   const commitBulk = (mode, filter) => { setBulk(mode, filter); setTimeout(() => commit(workRef.current), 0); };
 
+  // Toggle a piece-count for the Flips / Twists modes (keep at least one selected).
+  const toggleCount = (field) => (n) => setSettings((s) => {
+    const cur = s[field] || [];
+    let next = cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n];
+    if (!next.length) next = [n];
+    return { ...s, [field]: next.sort((a, b) => a - b) };
+  });
+
   // A pair contains letter L; is every drillable pair involving L already disabled?
   const allDisabledForLetter = useCallback((L) => letters.every((x) => {
     if (x === L || isImpossible(L, x) || isBufferExcluded(L, x)) return true;
@@ -768,6 +850,25 @@ function SubsetModal({ settings, setSettings, onClose }) {
           <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
             buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} pairs active
           </span>
+        </div>
+
+        {/* Flip / twist counts — how many pieces per case to drill in the Flips / Twists modes.
+            (These categories have no per-case selection yet; only the piece count is configurable.) */}
+        <div data-testid="count-selectors" style={{ marginTop: 16, display: "flex", gap: 24, flexWrap: "wrap", padding: "14px 0", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)" }}>
+          <CountRow
+            label="Edge flips (count)"
+            testidPrefix="flip-count"
+            available={FLIP_COUNTS_AVAILABLE}
+            selected={settings.flipCounts || [2]}
+            onToggle={toggleCount("flipCounts")}
+          />
+          <CountRow
+            label="Corner twists (count)"
+            testidPrefix="twist-count"
+            available={TWIST_COUNTS_AVAILABLE}
+            selected={settings.twistCounts || [2]}
+            onToggle={toggleCount("twistCounts")}
+          />
         </div>
 
         {/* Grid */}
@@ -899,8 +1000,81 @@ function SourceInfo({ sources, testid }) {
   );
 }
 
+function ModeDropdown({ mode, setMode, isMobile }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+  const active = NEW_CATEGORIES.includes(mode);
+  return (
+    <div ref={ref} style={{ position: "relative", display: "flex", flex: isMobile ? 1 : "none" }}>
+      <button
+        data-testid="mode-more-btn"
+        onClick={() => setOpen((v) => !v)}
+        className="overline font-head"
+        style={{
+          padding: isMobile ? "10px 8px" : "8px 14px", flex: isMobile ? 1 : "none", width: isMobile ? "100%" : "auto",
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 13, letterSpacing: "0.12em", cursor: "pointer", whiteSpace: "nowrap",
+          background: active ? "var(--surface-2)" : "transparent", color: active ? "#fff" : "#7a7a7a",
+          border: "none", borderRadius: "0 9px 9px 0",
+          boxShadow: active ? "inset 0 0 0 1px var(--active)" : "none",
+        }}
+      >
+        {active ? CATEGORY_META[mode].short : "MORE"} <ChevronDown size={14} />
+      </button>
+      {open && (
+        <div data-testid="mode-more-menu" className="theme-scroll" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 80, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 6, minWidth: 190, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
+          {NEW_CATEGORIES.map((c) => (
+            <button
+              key={c}
+              data-testid={`mode-${c}`}
+              onClick={() => { setMode(c); setOpen(false); }}
+              className="font-mono"
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 10px", fontSize: 13, cursor: "pointer", border: "none", borderRadius: 8,
+                background: mode === c ? "var(--surface)" : "transparent", color: mode === c ? "#fff" : "#A1A1AA" }}
+            >
+              {CATEGORY_META[c].label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CountRow({ label, testidPrefix, available, selected, onToggle }) {
+  return (
+    <div>
+      <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA", display: "block", marginBottom: 6 }}>{label}</span>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {available.map((n) => {
+          const on = selected.includes(n);
+          return (
+            <button
+              key={n}
+              data-testid={`${testidPrefix}-${n}`}
+              data-active={on}
+              onClick={() => onToggle(n)}
+              className="font-mono"
+              style={{ width: 34, height: 34, borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 700,
+                border: on ? "1px solid var(--active)" : "1px solid var(--line)",
+                background: on ? "var(--success)" : "var(--surface-2)", color: on ? "#04120a" : "#7a7a7a" }}
+            >
+              {n}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
   const isMobile = useIsMobile();
+  const isCategory = NEW_CATEGORIES.includes(pair.type);
   const [state, setState] = useState({ loading: true, error: null, data: null });
   const [showAll, setShowAll] = useState(false);
 
@@ -908,11 +1082,14 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
     let cancelled = false;
     setState({ loading: true, error: null, data: null });
     setShowAll(false);
-    fetchHints({ type: pair.type, buffer, t1: pair.t1, t2: pair.t2, style, maps })
+    const req = isCategory
+      ? fetchCaseHints({ category: pair.type, key: pair.code, style })
+      : fetchHints({ type: pair.type, buffer, t1: pair.t1, t2: pair.t2, style, maps });
+    req
       .then((data) => { if (!cancelled) setState({ loading: false, error: null, data }); })
       .catch((e) => { if (!cancelled) setState({ loading: false, error: e.message || String(e), data: null }); });
     return () => { cancelled = true; };
-  }, [pair.type, pair.t1, pair.t2, buffer, style, maps]);
+  }, [pair.type, pair.t1, pair.t2, pair.code, buffer, style, maps, isCategory]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") onClose(); };
@@ -920,10 +1097,10 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const options = STYLE_OPTIONS[pair.type] || STYLE_OPTIONS.corner;
+  const options = isCategory ? CATEGORY_STYLE_OPTIONS : (STYLE_OPTIONS[pair.type] || STYLE_OPTIONS.corner);
   const effStyle = options.some((o) => o[0] === style) ? style : "nightmare";
   useEffect(() => { if (effStyle !== style) setStyle(effStyle); }, [effStyle, style, setStyle]);
-  const blddbUrl = pair.type === "corner" ? "https://v2.blddb.net/corner" : "https://v2.blddb.net/edge";
+  const blddbUrl = isCategory ? CATEGORY_META[pair.type].url : (pair.type === "corner" ? "https://v2.blddb.net/corner" : "https://v2.blddb.net/edge");
   const { loading, error, data } = state;
   const list = data && data.list ? data.list : [];
   const recAlg = data && data.recommended;
@@ -1157,10 +1334,10 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
       <div>
         <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA", display: "block", marginBottom: 8 }}>Case subset</span>
         <button data-testid="open-subset-btn" onClick={onOpenSubset} style={{ ...moveBtn, width: "100%", padding: "11px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "var(--surface-2)" }}>
-          <Grid3X3 size={15} /> Select case subset (corners / edges)
+          <Grid3X3 size={15} /> Select case subset & flip/twist counts
         </button>
         <span className="font-mono" style={{ fontSize: 11, color: "#52525B", marginTop: 6, display: "block" }}>
-          Pick exactly which target pairs get drilled. All enabled by default.
+          Corners/edges: pick which target pairs get drilled. Flips/twists: pick how many pieces per case.
         </span>
       </div>
       <Field label="Cube MAC address (GAN / MoYu / QiYi)">

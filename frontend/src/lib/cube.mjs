@@ -72,6 +72,43 @@ export const MOVES = {};
   MOVES[f + "2"] = compose(BASE[f], BASE[f]);
 });
 
+// --- Extended moves: slices (M/E/S), wide turns (lowercase r/l/u/d/f/b + Rw..), rotations (x/y/z) ---
+// blddb flip/twist/parity/ltct algorithms use slice and wide moves, so the engine must support them.
+function buildPerm(t, match) {
+  const perm = FACELETS.map((_, i) => i);
+  FACELETS.forEach((fl, i) => {
+    if (match(fl.pos)) {
+      const j = posIndex[key([...t(fl.pos), ...t(fl.n)])];
+      if (j != null) perm[i] = j;
+    }
+  });
+  return perm;
+}
+function regMove(name, base) {
+  MOVES[name] = base;
+  MOVES[name + "'"] = invert(base);
+  MOVES[name + "2"] = compose(base, base);
+}
+// slices follow the adjacent face's direction: M~L, E~D, S~F
+regMove("M", buildPerm(T.L, (p) => p[0] === 0));
+regMove("E", buildPerm(T.D, (p) => p[1] === 0));
+regMove("S", buildPerm(T.F, (p) => p[2] === 0));
+// wide turns = outer face + adjacent middle slice, in the face's direction
+regMove("r", buildPerm(T.R, (p) => p[0] >= 0));
+regMove("l", buildPerm(T.L, (p) => p[0] <= 0));
+regMove("u", buildPerm(T.U, (p) => p[1] >= 0));
+regMove("d", buildPerm(T.D, (p) => p[1] <= 0));
+regMove("f", buildPerm(T.F, (p) => p[2] >= 0));
+regMove("b", buildPerm(T.B, (p) => p[2] <= 0));
+// whole-cube rotations
+regMove("x", buildPerm(T.R, () => true));
+regMove("y", buildPerm(T.U, () => true));
+regMove("z", buildPerm(T.F, () => true));
+// uppercase wide aliases (Rw, Lw, Uw, Dw, Fw, Bw)
+[["Rw", "r"], ["Lw", "l"], ["Uw", "u"], ["Dw", "d"], ["Fw", "f"], ["Bw", "b"]].forEach(([up, lo]) => {
+  MOVES[up] = MOVES[lo]; MOVES[up + "'"] = MOVES[lo + "'"]; MOVES[up + "2"] = MOVES[lo + "2"];
+});
+
 export function applyMove(state, move) {
   const p = MOVES[move];
   if (!p) return state;
@@ -131,6 +168,39 @@ export function blddbCode(letter, type, maps = SCHEMES.speffz) {
   if (idx == null) return null;
   const l = (type === "corner" ? CHICHU_CORNER_BY_IDX : CHICHU_EDGE_BY_IDX)[idx];
   return l ? l.toUpperCase() : null;
+}
+
+// --- Reverse: blddb code letter -> our facelet idx -> user scheme letter (for displaying
+//     flips/twists/parity/ltct case codes in the chosen lettering & orientation). ---
+const CHICHU_CORNER_CODE_TO_IDX = {};
+Object.entries(CHICHU_CORNER_LETTERS).forEach(([l, i]) => { CHICHU_CORNER_CODE_TO_IDX[l.toUpperCase()] = i; });
+const CHICHU_EDGE_CODE_TO_IDX = {};
+Object.entries(CHICHU_EDGE_LETTERS).forEach(([l, i]) => { CHICHU_EDGE_CODE_TO_IDX[l.toUpperCase()] = i; });
+
+function schemeLetterForIdx(idx, type, maps) {
+  const src = type === "corner" ? maps.corner : maps.edge;
+  for (const l in src) if (src[l] === idx) return l;
+  return null;
+}
+// Single blddb code char -> user scheme letter (orientation-aware). '*' (buffer) passes through.
+export function codeToSchemeLetter(codeChar, type, maps = SCHEMES.speffz) {
+  if (codeChar === "*") return "*";
+  const idx = (type === "corner" ? CHICHU_CORNER_CODE_TO_IDX : CHICHU_EDGE_CODE_TO_IDX)[codeChar];
+  if (idx == null) return codeChar;
+  const l = schemeLetterForIdx(idx, type, maps);
+  return l ? l.toUpperCase() : codeChar;
+}
+// Per-category char typing for the display code.
+const CATEGORY_CHAR_TYPE = {
+  flips: () => "edge",
+  twists: () => "corner",
+  parity: (i) => (i < 2 ? "edge" : "corner"),
+  ltct: () => "corner",
+};
+// Full case key ("BD", "JPR", "GAJA", "ADK") -> display string in the user's scheme.
+export function caseCodeToDisplay(codeKey, category, maps = SCHEMES.speffz) {
+  const typeFn = CATEGORY_CHAR_TYPE[category] || (() => "corner");
+  return codeKey.split("").map((ch, i) => codeToSchemeLetter(ch, typeFn(i), maps)).join("");
 }
 
 // --- Cube orientation: remap a lettering scheme to a user-chosen (top, front) color pair ---
