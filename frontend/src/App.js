@@ -108,9 +108,6 @@ export default function App() {
     if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
     const m = modeRef.current;
     const s = settingsRef.current;
-    // Without a connected cube (manual practice) the timer runs from when the pair appears,
-    // so it can be validated by tapping the screen / pressing space.
-    if (!startImmediately && btStatusRef.current !== "connected") startImmediately = true;
 
     // --- Extra categories (flips / twists / parity / ltct&t2c): drill blddb algorithm sets ---
     if (NEW_CATEGORIES.includes(m)) {
@@ -1013,29 +1010,64 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
 
 function SourceInfo({ sources, testid }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [pos, setPos] = useState(null);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+
+  const place = useCallback(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const W = 240, H = 220, GAP = 6;
+    let left = r.right - W;
+    if (left < 8) left = 8;
+    if (left + W > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - W);
+    let top = r.bottom + GAP;
+    if (top + H > window.innerHeight - 8) top = Math.max(8, r.top - GAP - H);
+    setPos({ left, top });
+  }, []);
+
+  const toggle = (e) => { e.stopPropagation(); setOpen((v) => { const nv = !v; if (nv) place(); return nv; }); };
+
   useEffect(() => {
     if (!open) return;
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onDoc = (e) => {
+      if (btnRef.current && btnRef.current.contains(e.target)) return;
+      if (popRef.current && popRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
+    const onScroll = () => place();
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open, place]);
+
   return (
-    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}
-      onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
+    <>
       <button
+        ref={btnRef}
         data-testid={testid}
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
+        onClick={toggle}
         title={`${sources.length} source${sources.length > 1 ? "s" : ""}`}
-        style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "transparent", border: "none", color: "#A1A1AA", cursor: "pointer", padding: 2, fontSize: 11 }}>
+        style={{ display: "inline-flex", alignItems: "center", gap: 4, flexShrink: 0, background: "transparent", border: "none", color: "#A1A1AA", cursor: "pointer", padding: 2, fontSize: 11 }}>
         <Info size={14} />
         <span className="font-mono">{sources.length}</span>
       </button>
-      {open && (
+      {open && pos && createPortal(
         <div
+          ref={popRef}
           data-testid={`${testid}-popover`}
           className="theme-scroll"
-          style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 70, width: 240, maxHeight: 220, overflowY: "auto", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+          onClick={(e) => e.stopPropagation()}
+          style={{ position: "fixed", left: pos.left, top: pos.top, zIndex: 200, width: 240, maxHeight: 220, overflowY: "auto", background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.55)" }}>
           <div className="overline font-head" style={{ fontSize: 9, color: "var(--active)", marginBottom: 6 }}>Sources</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
             {sources.map((s, i) => (
@@ -1051,9 +1083,10 @@ function SourceInfo({ sources, testid }) {
               )
             ))}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
-    </div>
+    </>
   );
 }
 
