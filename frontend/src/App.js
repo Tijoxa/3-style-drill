@@ -636,7 +636,9 @@ function SubsetModal({ settings, setSettings, onClose }) {
   const isMobile = useIsMobile();
   const scheme = settings.scheme;
   const maps = getMaps(scheme, settings.orientation);
-  const [type, setType] = useState("corner");
+  const [view, setView] = useState("corner"); // corner | edge | flips | twists
+  const type = view === "edge" ? "edge" : "corner";
+  const isPieceView = view === "flips" || view === "twists";
   const buffer = type === "corner" ? settings.cornerBuffer : settings.edgeBuffer;
   const letters = useMemo(
     () => Object.keys(type === "corner" ? maps.corner : maps.edge).sort(),
@@ -835,42 +837,38 @@ function SubsetModal({ settings, setSettings, onClose }) {
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
-          <div data-testid="subset-type-switch" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, overflow: "hidden", background: "var(--surface)" }}>
-            {[["corner", "Corners"], ["edge", "Edges"]].map(([t, l], idx) => (
-              <button key={t} data-testid={`subset-type-${t}`} onClick={() => setType(t)} className="overline font-head"
-                style={{ padding: "8px 16px", fontSize: 12, letterSpacing: "0.12em", cursor: "pointer", border: "none",
-                  background: type === t ? "var(--surface-2)" : "transparent", color: type === t ? "#fff" : "#7a7a7a",
-                  // Distinct corner rounding per active button segment so they flush cleanly against the wrapper shell
-                  borderRadius: type === t 
-                    ? (idx === 0 ? "9px 0 0 9px" : "0 9px 9px 0") 
-                    : "0px",
-                  boxShadow: type === t ? "inset 0 0 0 1px var(--active)" : "none" }}>{l}</button>
-            ))}
+          <select data-testid="subset-view-select" value={view} onChange={(e) => setView(e.target.value)} style={{ ...selectStyle, minWidth: 180 }}>
+            <option value="corner">Corners</option>
+            <option value="edge">Edges</option>
+            <option value="flips">Edge flips</option>
+            <option value="twists">Corner twists</option>
+          </select>
+          {!isPieceView && (
+            <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
+              buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} pairs active
+            </span>
+          )}
+        </div>
+
+        {view === "flips" && (
+          <div data-testid="count-selectors" style={{ marginTop: 18 }}>
+            <CountRow label="Edge flips (count)" testidPrefix="flip-count" available={FLIP_COUNTS_AVAILABLE} selected={settings.flipCounts || [2]} onToggle={toggleCount("flipCounts")} />
+            <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
+              How many edges are flipped per drilled case. (No per-case selection for flips yet.)
+            </p>
           </div>
-          <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
-            buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} pairs active
-          </span>
-        </div>
+        )}
+        {view === "twists" && (
+          <div data-testid="count-selectors" style={{ marginTop: 18 }}>
+            <CountRow label="Corner twists (count)" testidPrefix="twist-count" available={TWIST_COUNTS_AVAILABLE} selected={settings.twistCounts || [2]} onToggle={toggleCount("twistCounts")} />
+            <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
+              How many corners are twisted per drilled case. (No per-case selection for twists yet.)
+            </p>
+          </div>
+        )}
 
-        {/* Flip / twist counts — how many pieces per case to drill in the Flips / Twists modes.
-            (These categories have no per-case selection yet; only the piece count is configurable.) */}
-        <div data-testid="count-selectors" style={{ marginTop: 16, display: "flex", gap: 24, flexWrap: "wrap", padding: "14px 0", borderTop: "1px solid var(--line)", borderBottom: "1px solid var(--line)" }}>
-          <CountRow
-            label="Edge flips (count)"
-            testidPrefix="flip-count"
-            available={FLIP_COUNTS_AVAILABLE}
-            selected={settings.flipCounts || [2]}
-            onToggle={toggleCount("flipCounts")}
-          />
-          <CountRow
-            label="Corner twists (count)"
-            testidPrefix="twist-count"
-            available={TWIST_COUNTS_AVAILABLE}
-            selected={settings.twistCounts || [2]}
-            onToggle={toggleCount("twistCounts")}
-          />
-        </div>
-
+        {!isPieceView && (
+        <>
         {/* Grid */}
         <div style={{ overflowX: "hidden", touchAction: isMobile ? "pan-y" : "none", paddingBottom: 4, marginTop: 14 }}>
           <div style={{ display: "inline-block", userSelect: "none" }}>
@@ -947,6 +945,8 @@ function SubsetModal({ settings, setSettings, onClose }) {
             </div>
           ))}
         </div>
+        </>
+        )}
       </motion.div>
       </div>
     </>,
