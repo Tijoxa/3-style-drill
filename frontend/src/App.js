@@ -14,6 +14,7 @@ import {
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
 import { fetchHints, fetchCaseHints, STYLE_OPTIONS, CATEGORY_STYLE_OPTIONS, loadCategoryCases } from "./lib/blddb";
 import { loadStore as loadFsrs, saveStore as saveFsrs, resetStore as resetFsrs, recordReview, pickWeightedPair } from "./lib/fsrs";
+import { createPRNG } from "./lib/prng";
 import CubeNet from "./components/CubeNet";
 
 const STATS_KEY = "bld3style_stats_v1";
@@ -57,7 +58,7 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], orientation: { top: "white", front: "green" }, distribution: "uniform", srTimeoutMs: 10000, disabledCases: {} };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], orientation: { top: "white", front: "green" }, distribution: "uniform", useSeed: false, seed: 42, srTimeoutMs: 10000, disabledCases: {} };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 
 export default function App() {
@@ -103,6 +104,22 @@ export default function App() {
   const categoryCacheRef = useRef({}); // category -> { key: recommendedAlg }
   const [catState, setCatState] = useState({ loading: false, error: null });
   const isTimerPausedRef = useRef(isTimerPaused);
+  const prngRef = useRef(null);
+
+  const getRandom = useCallback(() => {
+    const s = settingsRef.current;
+    if (s.distribution !== "spaced" && s.useSeed) {
+      const seedVal = s.seed ?? 42;
+      const seedKey = `${s.useSeed}:${seedVal}:${modeRef.current}:${s.scheme}`;
+      if (!prngRef.current || prngRef.current.key !== seedKey) {
+        const fn = createPRNG(seedVal);
+        fn.key = seedKey;
+        prngRef.current = fn;
+      }
+      return prngRef.current();
+    }
+    return Math.random();
+  }, []);
   useEffect(() => { isTimerPausedRef.current = isTimerPaused; }, [isTimerPaused]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { btStatusRef.current = btStatus; }, [btStatus]);
@@ -128,7 +145,7 @@ export default function App() {
       for (let tries = 0; tries < 200; tries++) {
         const kkey = spaced
           ? pickWeightedPair(keys, (k) => `${s.scheme}:${m}:${k}`, fsrsRef.current)
-          : keys[Math.floor(Math.random() * keys.length)];
+          : keys[Math.floor(getRandom() * keys.length)];
         const alg = recMap[kkey];
         if (!alg) continue;
         const target = applyAlg(cur, alg);
@@ -189,7 +206,7 @@ export default function App() {
     for (let tries = 0; tries < 200; tries++) {
       const [t1, t2] = spaced
         ? pickWeightedPair(validPairs, ([a, b]) => caseKey(s.scheme, type, a, b), fsrsRef.current)
-        : validPairs[Math.floor(Math.random() * validPairs.length)];
+        : validPairs[Math.floor(getRandom() * validPairs.length)];
       const target = apply3Cycle(cur, [buffer, t1, t2], type, maps);
       if (target !== cur) {
         targetRef.current = target;
@@ -215,7 +232,7 @@ export default function App() {
         return;
       }
     }
-  }, []);
+  }, [getRandom]);
 
   const onSuccess = useCallback((capturedElapsed) => {
     if (busyRef.current) return;
@@ -1539,6 +1556,39 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
           Spaced repetition shows slower / less-recalled cases more often, graded from your solve time.
         </span>
       </Field>
+      {settings.distribution !== "spaced" && (
+        <>
+          <Toggle
+            label="Set seed"
+            testid="seed-toggle"
+            value={!!settings.useSeed}
+            onChange={(v) => {
+              setSettings((prev) => ({
+                ...prev,
+                useSeed: v,
+                seed: prev.seed ?? 42,
+              }));
+            }}
+          />
+          {settings.useSeed && (
+            <Field label="Seed value">
+              <input
+                data-testid="seed-input"
+                type="number"
+                value={settings.seed ?? 42}
+                onChange={(e) => {
+                  const val = e.target.value === "" ? "" : Number(e.target.value);
+                  set("seed", val);
+                }}
+                style={{ ...selectStyle, width: 110, boxSizing: "border-box" }}
+              />
+              <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
+                Fixed seed for deterministic random case selection (default: 42).
+              </span>
+            </Field>
+          )}
+        </>
+      )}
       {settings.distribution === "spaced" && (
         <>
           <Field label="Timeout (case not counted above this)">
