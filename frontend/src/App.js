@@ -369,7 +369,8 @@ export default function App() {
   }, [drawer, hintOpen, subsetOpen, macPrompt, onSuccess, startTiming, resetAndStop]);
 
   // init first case + rebuild on mode / scheme / buffer change
-  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { buildCase(); }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts]);
 
   // Load the algorithm set for extra categories (flips/twists/parity/ltct), then build a case.
   useEffect(() => {
@@ -816,7 +817,8 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   const [work, setWork] = useState(seed);
   const workRef = useRef(work);
   useEffect(() => { workRef.current = work; }, [work]);
-  useEffect(() => { setWork(seed()); /* eslint-disable-next-line */ }, [type, scheme]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setWork(seed()); }, [type, scheme]);
 
   const commit = useCallback((w) => {
     setSettings((s) => {

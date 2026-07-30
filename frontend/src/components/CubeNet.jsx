@@ -19,7 +19,7 @@ function cellFor(i) {
 
 export default function CubeNet({ state, highlights = {}, orientation }) {
   // g[worldSlot] = hardware facelet shown at that slot; gInv maps hardware idx -> world slot.
-  const g = useMemo(() => orientationPerm(orientation), [orientation?.top, orientation?.front]);
+  const g = useMemo(() => orientationPerm(orientation), [orientation]);
   const gInv = useMemo(() => { const inv = new Array(54); g.forEach((h, i) => { inv[h] = i; }); return inv; }, [g]);
 
   const bufferSlot = highlights.bufferIdx != null ? gInv[highlights.bufferIdx] : null;
