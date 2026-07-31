@@ -1,0 +1,22 @@
+App.svelte:
+Error in vite.config
+
+Error: No Svelte configuration found in vite config. Is @sveltejs/vite-plugin-svelte configured?
+
+
+
+migrate from javascript to typescript in svelte
+
+
+fix the scroll on the side menu [DONE]
+
+
+"lucide-svelte": "^0.475.0", Errors
+Package deprecated. Please use @lucide/svelte instead.
+
+
+use less deps (eslint is useless with bun right?)
+update deps
+
+
+on writing titles there is a line above the next, apply that again
