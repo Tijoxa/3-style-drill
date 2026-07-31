@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
+import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
@@ -8,9 +8,7 @@ const __dirname = path.dirname(__filename);
 
 export default defineConfig({
   plugins: [
-    react({
-      include: '**/*.{jsx,js,ts,tsx}',
-    }),
+    svelte(),
   ],
   resolve: {
     alias: {
@@ -23,18 +21,6 @@ export default defineConfig({
   },
   define: {
     'process.env.PUBLIC_URL': '""',
-  },
-  esbuild: {
-    loader: 'jsx',
-    include: /src\/.*\.[jt]sx?$/,
-    exclude: [],
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      loader: {
-        '.js': 'jsx',
-      },
-    },
   },
   server: {
     port: 3000,
