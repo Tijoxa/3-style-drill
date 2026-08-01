@@ -60,6 +60,11 @@ Build an app to drill 3x3 Rubik's cube 3-style (blind method) commutators with a
 - P2: Chrome experimental-flag hint for automatic MAC detection.
 - P2: Custom lettering scheme editor.
 
+## Tooling migration — branch `dev-emergent` [2026-06]
+- Checked out `dev-emergent` (github.com/Tijoxa/3-style-drill). Migrated build stack: CRA/Craco → **Vite 5.4**; package manager → **Bun 1.4.0 (canary)** (`bun.lock`, `packageManager: bun@1.4.0`). Backend (FastAPI) removed — app is now a pure frontend SPA. `index.html` moved to `frontend/` root, entry `/src/index.js` (ESM), alias `@`→`src`.
+- New feature on this branch: **Pause/Play du chrono** in `App.js` (`togglePauseTimer`, `isTimerPaused`, freezes/resumes current-case elapsed; icons Pause/Play; exposed via `window.__trainer.togglePauseTimer`).
+- Env adaptations for Emergent preview: `vite.config.js` server set `host:0.0.0.0, port:3000, strictPort:true, allowedHosts:true, open:false`. Supervisor `frontend` command changed `yarn start` → `/root/.bun/bin/bun run dev` (yarn 1.22 refuses the `packageManager: bun` field), PATH includes `/root/.bun/bin`. Backend supervisor program stopped (no server.py). Verified: preview loads, 0 console errors.
+
 ## Debug hooks (dev/testing)
 window.__trainer: solveCurrent, getSuccess, getState, getTarget, feedFacelets, markSolved, openMacPrompt.
 window.__cube: SOLVED, applyMove, applyAlg, scramble.
