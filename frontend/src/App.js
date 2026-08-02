@@ -453,11 +453,15 @@ export default function App() {
       if (k.toLowerCase() === "h") { e.preventDefault(); setHintOpen(true); return; }
       const map = { u: "U", r: "R", f: "F", d: "D", l: "L", b: "B" };
       const face = map[k.toLowerCase()];
-      if (face) { e.preventDefault(); doMove(e.shiftKey ? face + "'" : face); }
+      if (face) {
+        if (!settings.showManual) return;
+        e.preventDefault();
+        doMove(e.shiftKey ? face + "'" : face);
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [doMove, skipCase, validate, resetAndStop, drawer, hintOpen, subsetOpen, macPrompt]);
+  }, [doMove, skipCase, validate, resetAndStop, drawer, hintOpen, subsetOpen, macPrompt, settings.showManual]);
 
   const handleConnect = useCallback(async () => {
     if (btStatus === "connected") { await btDisconnect(); setBtStatus("disconnected"); setCubeName(""); setBattery(null); return; }
@@ -1628,7 +1632,7 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
         </select>
       </Field>
       <Toggle label="Sound feedback" testid="sound-toggle" value={settings.sound} onChange={(v) => set("sound", v)} />
-      <Toggle label="Show manual move buttons" testid="manual-toggle" value={settings.showManual} onChange={(v) => set("showManual", v)} />
+      <Toggle label="Manual move buttons" testid="manual-toggle" value={settings.showManual} onChange={(v) => set("showManual", v)} />
       <Field label="Case distribution">
         <select data-testid="distribution-select" value={settings.distribution || "uniform"} onChange={(e) => set("distribution", e.target.value)} style={selectStyle}>
           <option value="uniform">Uniform (random)</option>
