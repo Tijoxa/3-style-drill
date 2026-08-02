@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
-  orientMaps, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay, ltctCaseKind, CORNER_FACELET_GROUPS,
+  orientMaps, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay, ltctCaseKind,
+  codeCharToFacelet, caseKeyToPositions,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
 import { fetchHints, fetchCaseHints, STYLE_OPTIONS, CATEGORY_STYLE_OPTIONS, loadCategoryCases } from "./lib/blddb";
@@ -151,13 +152,17 @@ export default function App() {
             caseStartRef.current = null;
           }
           setPair({ code: kkey, display: caseCodeToDisplay(kkey, m, catMaps), type: m });
-          const changed = [];
-          for (let i = 0; i < 54; i++) if (target[i] !== cur[i]) changed.push(i);
-          // LTCT/T2C: glow only ONE face per involved corner (the U/D sticker) to avoid confusion.
-          const set = m === "ltct"
-            ? CORNER_FACELET_GROUPS.filter((g) => g.some((i) => changed.includes(i))).map((g) => g[0])
-            : changed;
-          setHighlights({ set });
+          // Highlight the letter stickers (one face per piece): flips/twists = all green;
+          // ltct/t2c = first two green + bracketed (twisted) piece blue; parity = 1st edge &
+          // 1st corner blue, the other two green.
+          const chars = kkey.split("");
+          const charType = (i) => (m === "flips" ? "edge" : m === "twists" ? "corner" : m === "parity" ? (i < 2 ? "edge" : "corner") : "corner");
+          const fFor = (i) => codeCharToFacelet(chars[i], charType(i));
+          let greenSet = [], blueSet = [];
+          if (m === "ltct" && chars.length === 3) { greenSet = [fFor(0), fFor(1)]; blueSet = [fFor(2)]; }
+          else if (m === "parity" && chars.length === 4) { blueSet = [fFor(0), fFor(2)]; greenSet = [fFor(1), fFor(3)]; }
+          else { greenSet = chars.map((_, i) => fFor(i)); }
+          setHighlights({ greenSet: greenSet.filter((x) => x != null), blueSet: blueSet.filter((x) => x != null) });
           return;
         }
       }
@@ -226,6 +231,7 @@ export default function App() {
   const onSuccess = useCallback((capturedElapsed) => {
     if (busyRef.current) return;
     busyRef.current = true;
+    setHintOpen(false); // close the hint panel (if open) as soon as the case is solved
     const elapsed = capturedElapsed != null
       ? capturedElapsed
       : (caseStoppedRef.current != null ? caseStoppedRef.current : (caseStartRef.current ? Date.now() - caseStartRef.current : 0));
@@ -1368,6 +1374,11 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
   useEffect(() => { if (effStyle !== style) setStyle(effStyle); }, [effStyle, style, setStyle]);
   const blddbUrl = isCategory ? CATEGORY_META[pair.type].url : (pair.type === "corner" ? "https://v2.blddb.net/corner" : "https://v2.blddb.net/edge");
   const { loading, error, data } = state;
+  // Deep link straight to this case, pre-filled on v2.blddb.net (position=piece cycle & mode=style).
+  const caseKeyStr = data && data.key;
+  const blddbCaseUrl = caseKeyStr
+    ? `${blddbUrl}?position=${caseKeyToPositions(caseKeyStr, pair.type).join("-")}&mode=${effStyle}`
+    : blddbUrl;
   const list = data && data.list ? data.list : [];
   const recAlg = data && data.recommended;
   const recComm = data && data.recCommutator;
@@ -1468,10 +1479,10 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
           )}
         </div>
 
-        <a data-testid="hint-blddb-link" href={blddbUrl} target="_blank" rel="noreferrer"
+        <a data-testid="hint-blddb-link" href={blddbCaseUrl} target="_blank" rel="noreferrer"
           className="font-mono"
           style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 18, fontSize: 12, color: "#A1A1AA", textDecoration: "none" }}>
-          <ExternalLink size={13} /> Data from v2.blddb.net (live)
+          <ExternalLink size={13} /> Open this case on v2.blddb.net
         </a>
       </motion.div>
       </div>
