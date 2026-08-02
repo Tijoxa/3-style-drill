@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
-  orientMaps, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay,
+  orientMaps, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay, ltctCaseKind,
+  codeCharToFacelet, caseKeyToPositions,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
 import { fetchHints, fetchCaseHints, STYLE_OPTIONS, CATEGORY_STYLE_OPTIONS, loadCategoryCases } from "./lib/blddb";
@@ -25,10 +26,11 @@ const CATEGORY_META = {
   parity: { label: "Parity",        short: "PARITY",        url: "https://v2.blddb.net/parity" },
   ltct:   { label: "LTCT & T2C",    short: "LTCT / T2C",    url: "https://v2.blddb.net/ltct" },
 };
+const LTCT_MODES_AVAILABLE = [["ltct", "LTCT"], ["t2c", "T2C"]];
 const FLIP_COUNTS_AVAILABLE = [2];
 const TWIST_COUNTS_AVAILABLE = [2, 3, 4, 5, 6, 7, 8];
 // Maps the active drill mode to the matching Case Subset view (parity/ltct have no subset config → corners).
-const MODE_TO_SUBSET_VIEW = { corners: "corner", edges: "edge", flips: "flips", twists: "twists", parity: "corner", ltct: "corner" };
+const MODE_TO_SUBSET_VIEW = { corners: "corner", edges: "edge", flips: "flips", twists: "twists", parity: "corner", ltct: "ltct" };
 const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
 const getMaps = (scheme, orientation) => orientMaps(SCHEMES[scheme] || SCHEMES.speffz, orientation);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -57,7 +59,7 @@ function beep(freq, ok) {
   } catch {}
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], orientation: { top: "white", front: "green" }, distribution: "uniform", srTimeoutMs: 10000, disabledCases: {} };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], ltctModes: ["ltct", "t2c"], orientation: { top: "white", front: "green" }, distribution: "uniform", srTimeoutMs: 10000, disabledCases: {} };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 
 export default function App() {
@@ -122,6 +124,7 @@ export default function App() {
       let keys = Object.keys(recMap);
       if (m === "flips") keys = keys.filter((k) => (s.flipCounts || [2]).includes(k.length));
       else if (m === "twists") keys = keys.filter((k) => (s.twistCounts || [2]).includes(k.length));
+      else if (m === "ltct") { const modes = s.ltctModes || ["ltct", "t2c"]; keys = keys.filter((k) => modes.includes(ltctCaseKind(k))); }
       if (!keys.length) { clearCase(); return; }
       const cur = cubeStateRef.current;
       const spaced = s.distribution === "spaced";
@@ -149,9 +152,17 @@ export default function App() {
             caseStartRef.current = null;
           }
           setPair({ code: kkey, display: caseCodeToDisplay(kkey, m, catMaps), type: m });
-          const set = [];
-          for (let i = 0; i < 54; i++) if (target[i] !== cur[i]) set.push(i);
-          setHighlights({ set });
+          // Highlight the letter stickers (one face per piece): flips/twists = all green;
+          // ltct/t2c = first two green + bracketed (twisted) piece blue; parity = 1st edge &
+          // 1st corner blue, the other two green.
+          const chars = kkey.split("");
+          const charType = (i) => (m === "flips" ? "edge" : m === "twists" ? "corner" : m === "parity" ? (i < 2 ? "edge" : "corner") : "corner");
+          const fFor = (i) => codeCharToFacelet(chars[i], charType(i));
+          let greenSet = [], blueSet = [];
+          if (m === "ltct" && chars.length === 3) { greenSet = [fFor(0), fFor(1)]; blueSet = [fFor(2)]; }
+          else if (m === "parity" && chars.length === 4) { blueSet = [fFor(0), fFor(2)]; greenSet = [fFor(1), fFor(3)]; }
+          else { greenSet = chars.map((_, i) => fFor(i)); }
+          setHighlights({ greenSet: greenSet.filter((x) => x != null), blueSet: blueSet.filter((x) => x != null) });
           return;
         }
       }
@@ -220,6 +231,7 @@ export default function App() {
   const onSuccess = useCallback((capturedElapsed) => {
     if (busyRef.current) return;
     busyRef.current = true;
+    setHintOpen(false); // close the hint panel (if open) as soon as the case is solved
     const elapsed = capturedElapsed != null
       ? capturedElapsed
       : (caseStoppedRef.current != null ? caseStoppedRef.current : (caseStartRef.current ? Date.now() - caseStartRef.current : 0));
@@ -370,7 +382,7 @@ export default function App() {
 
   // init first case + rebuild on mode / scheme / buffer change
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { buildCase(); }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts]);
+  useEffect(() => { buildCase(); }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts, settings.ltctModes]);
 
   // Load the algorithm set for extra categories (flips/twists/parity/ltct), then build a case.
   useEffect(() => {
@@ -408,8 +420,16 @@ export default function App() {
   // keyboard controls
   useEffect(() => {
     const handler = (e) => {
-      if (drawer || hintOpen || subsetOpen || macPrompt) return;
+      if (drawer || subsetOpen || macPrompt) return;
       const k = e.key;
+      // While the Hint panel is open, still let Space validate the case (it auto-closes the
+      // hint via onSuccess) and Backspace skip; other trainer keys stay disabled so the modal
+      // keeps its own behavior.
+      if (hintOpen) {
+        if (k === " ") { e.preventDefault(); validate(); return; }
+        if (k === "Backspace") { e.preventDefault(); setHintOpen(false); skipCase(); return; }
+        return;
+      }
       if (k === "Backspace") { e.preventDefault(); skipCase(); return; }
       if (k === " ") { e.preventDefault(); validate(); return; }
       if (k === "Escape") { e.preventDefault(); resetAndStop(); return; }
@@ -795,7 +815,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   const maps = getMaps(scheme, settings.orientation);
   const [view, setView] = useState(initialView); // corner | edge | flips | twists (synced with active drill mode on open)
   const type = view === "edge" ? "edge" : "corner";
-  const isPieceView = view === "flips" || view === "twists";
+  const isPieceView = view === "flips" || view === "twists" || view === "ltct";
   const buffer = type === "corner" ? settings.cornerBuffer : settings.edgeBuffer;
   const letters = useMemo(
     () => Object.keys(type === "corner" ? maps.corner : maps.edge).sort(),
@@ -930,6 +950,13 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     return { ...s, [field]: next.sort((a, b) => a - b) };
   });
 
+  // Toggle an LTCT / T2C sub-category (neither is allowed → empty pool shows "--").
+  const toggleLtctMode = (v) => setSettings((s) => {
+    const cur = s.ltctModes || ["ltct", "t2c"];
+    const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
+    return { ...s, ltctModes: next };
+  });
+
   // A pair contains letter L; is every drillable pair involving L already disabled?
   const allDisabledForLetter = useCallback((L) => letters.every((x) => {
     if (x === L || isImpossible(L, x) || isBufferExcluded(L, x)) return true;
@@ -1016,6 +1043,27 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
             <CountRow label="Corner twists (count)" testidPrefix="twist-count" available={TWIST_COUNTS_AVAILABLE} selected={settings.twistCounts || [2]} onToggle={toggleCount("twistCounts")} />
             <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
               How many corners are twisted per drilled case. (No per-case selection for twists yet.)
+            </p>
+          </div>
+        )}
+        {view === "ltct" && (
+          <div data-testid="ltct-selectors" style={{ marginTop: 18 }}>
+            <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA", display: "block", marginBottom: 6 }}>Case types</span>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {LTCT_MODES_AVAILABLE.map(([v, l]) => {
+                const on = (settings.ltctModes || ["ltct", "t2c"]).includes(v);
+                return (
+                  <button key={v} data-testid={`ltct-mode-${v}`} data-active={on} onClick={() => toggleLtctMode(v)} className="font-mono"
+                    style={{ minWidth: 66, height: 34, padding: "0 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 700, letterSpacing: "0.04em",
+                      border: on ? "1px solid var(--active)" : "1px solid var(--line)",
+                      background: on ? "var(--success)" : "var(--surface-2)", color: on ? "#04120a" : "#7a7a7a" }}>
+                    {l}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
+              <b style={{ color: "#A1A1AA" }}>LTCT</b> = C-buffer cycle with a twisted last target (<span style={{ color: "#A1A1AA" }}>CB[S]</span>). <b style={{ color: "#A1A1AA" }}>T2C</b> = twisted buffer with two swapped corners (<span style={{ color: "#A1A1AA" }}>AU[J]</span>). Select either, both, or neither.
             </p>
           </div>
         )}
@@ -1197,8 +1245,8 @@ function SubsetViewSwitch({ view, setView }) {
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
-  const MORE = [["flips", "Edge flips", "EDGE FLIPS"], ["twists", "Corner twists", "CORNER TWISTS"]];
-  const moreActive = view === "flips" || view === "twists";
+  const MORE = [["flips", "Edge flips", "EDGE FLIPS"], ["twists", "Corner twists", "CORNER TWISTS"], ["ltct", "LTCT & T2C", "LTCT & T2C"]];
+  const moreActive = view === "flips" || view === "twists" || view === "ltct";
   const moreLabel = moreActive ? MORE.find((m) => m[0] === view)[2] : "MORE";
   return (
     <div data-testid="subset-view-switch" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface)", position: "relative" }}>
@@ -1334,6 +1382,11 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
   useEffect(() => { if (effStyle !== style) setStyle(effStyle); }, [effStyle, style, setStyle]);
   const blddbUrl = isCategory ? CATEGORY_META[pair.type].url : (pair.type === "corner" ? "https://v2.blddb.net/corner" : "https://v2.blddb.net/edge");
   const { loading, error, data } = state;
+  // Deep link straight to this case, pre-filled on v2.blddb.net (position=piece cycle & mode=style).
+  const caseKeyStr = data && data.key;
+  const blddbCaseUrl = caseKeyStr
+    ? `${blddbUrl}?position=${caseKeyToPositions(caseKeyStr, pair.type).join("-")}&mode=${effStyle}`
+    : blddbUrl;
   const list = data && data.list ? data.list : [];
   const recAlg = data && data.recommended;
   const recComm = data && data.recCommutator;
@@ -1434,10 +1487,10 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
           )}
         </div>
 
-        <a data-testid="hint-blddb-link" href={blddbUrl} target="_blank" rel="noreferrer"
+        <a data-testid="hint-blddb-link" href={blddbCaseUrl} target="_blank" rel="noreferrer"
           className="font-mono"
           style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 18, fontSize: 12, color: "#A1A1AA", textDecoration: "none" }}>
-          <ExternalLink size={13} /> Data from v2.blddb.net (live)
+          <ExternalLink size={13} /> Open this case on v2.blddb.net
         </a>
       </motion.div>
       </div>
