@@ -200,7 +200,23 @@ const CATEGORY_CHAR_TYPE = {
 // Full case key ("BD", "JPR", "GAJA", "ADK") -> display string in the user's scheme.
 export function caseCodeToDisplay(codeKey, category, maps = SCHEMES.speffz) {
   const typeFn = CATEGORY_CHAR_TYPE[category] || (() => "corner");
-  return codeKey.split("").map((ch, i) => codeToSchemeLetter(ch, typeFn(i), maps)).join("");
+  const letters = codeKey.split("").map((ch, i) => codeToSchemeLetter(ch, typeFn(i), maps));
+  // LTCT / T2C convention: two plain letters then the twisted piece in brackets, e.g. CB[S], AU[J].
+  if (category === "ltct" && letters.length === 3) return `${letters[0]}${letters[1]}[${letters[2]}]`;
+  return letters.join("");
+}
+
+// Corner cubie facelet triplets (U/D-face sticker listed first) — canonical URFDLB model.
+export const CORNER_FACELET_GROUPS = [
+  [0, 36, 47], [2, 45, 11], [8, 9, 20], [6, 18, 38],
+  [27, 24, 44], [29, 26, 15], [35, 17, 51], [33, 42, 53],
+];
+// LTCT & T2C both cycle 3 corners incl. the UFR buffer. LTCT = buffer is the first cycle piece
+// (normal C buffer + a twisted last target); T2C = the buffer itself is the twisted piece.
+const LTCT_BUFFER_IDXS = [8, 9, 20];
+export function ltctCaseKind(codeKey) {
+  const idx = CHICHU_CORNER_CODE_TO_IDX[codeKey[0]];
+  return LTCT_BUFFER_IDXS.includes(idx) ? "ltct" : "t2c";
 }
 
 // --- Cube orientation: remap a lettering scheme to a user-chosen (top, front) color pair ---
