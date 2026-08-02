@@ -724,52 +724,60 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
     if (remember) onSaveDefault(clean);
     onSubmit(clean);
   };
-  const modalStyle = isMobile
-    ? { position: "fixed", top: 12, left: 12, right: 12, width: "auto", maxHeight: "88dvh", overflowY: "auto", boxSizing: "border-box" }
-    : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 440, maxWidth: "94vw", maxHeight: "92dvh", overflowY: "auto", boxSizing: "border-box" };
+  const modalStyle = {
+    width: isMobile ? "auto" : 440,
+    maxWidth: "94vw",
+    maxHeight: "92dvh",
+    overflowY: "auto",
+    boxSizing: "border-box",
+  };
   return createPortal(
     <>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        onClick={() => onSubmit(null)}
         style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 60 }} />
-      <motion.div
-        data-testid="mac-modal"
-        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
-        transition={{ duration: 0.15 }}
-        style={{ ...modalStyle, background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 18 : 26, zIndex: 61 }}
-      >
-        <h2 className="font-head" style={{ fontSize: 26, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>Enter Cube MAC Address</h2>
-        <p className="font-mono" style={{ color: "#A1A1AA", fontSize: 12.5, lineHeight: 1.7, marginTop: 10 }}>
-          Your browser couldn't read the MAC of <b style={{ color: "#fff" }}>{deviceName || "your cube"}</b> automatically.
-          GAN / MoYu / QiYi cubes need it for decryption. Find it in your cube's official app
-          (GAN: Cube Station → cube settings), then enter it below.
-        </p>
-        <div className="font-mono" style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface-2)", fontSize: 12, lineHeight: 1.7, color: "#A1A1AA" }}>
-          <b style={{ color: "#fff" }}>Tip (Chrome/Edge):</b> open a new tab, go to{" "}
-          <code data-testid="mac-tip-url" style={{ userSelect: "all", color: "var(--active)", fontWeight: 700 }}>chrome://bluetooth-internals</code>,
-          open the <b style={{ color: "#fff" }}>Devices</b> tab, click <b style={{ color: "#fff" }}>Scan</b>, find your cube and read its <b style={{ color: "#fff" }}>Address</b>.
-        </div>
-        <input
-          data-testid="mac-input"
-          autoFocus
-          value={mac}
-          onChange={(e) => setMac(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && valid) submit(); }}
-          placeholder="AA:BB:CC:DD:EE:FF"
-          style={{ ...selectStyle, width: "100%", marginTop: 16, letterSpacing: "0.08em", boxSizing: "border-box" }}
-        />
-        {mac && !valid && <div className="font-mono" style={{ color: "var(--error)", fontSize: 11, marginTop: 6 }}>Format: AA:BB:CC:DD:EE:FF</div>}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, cursor: "pointer" }}>
-          <input data-testid="mac-remember" type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
-          <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>Remember this MAC address</span>
-        </label>
-        <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "flex-end", flexWrap: "wrap" }}>
-          <button data-testid="mac-cancel-btn" onClick={() => onSubmit(null)} style={ghostBtn}>Cancel</button>
-          <button data-testid="mac-submit-btn" onClick={submit} disabled={!valid}
-            style={{ ...moveBtn, minWidth: 120, padding: "9px 18px", opacity: valid ? 1 : 0.4, background: "var(--active)", borderColor: "var(--active)" }}>
-            Connect
-          </button>
-        </div>
-      </motion.div>
+      <div style={{ position: "fixed", inset: 0, zIndex: 61, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 12 : 24, pointerEvents: "none", boxSizing: "border-box" }}>
+        <motion.div
+          data-testid="mac-modal"
+          initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+          transition={{ duration: 0.15 }}
+          className="theme-scroll"
+          style={{ ...modalStyle, pointerEvents: "auto", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 18 : 26 }}
+        >
+          <h2 className="font-head" style={{ fontSize: 26, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>Enter Cube MAC Address</h2>
+          <p className="font-mono" style={{ color: "#A1A1AA", fontSize: 12.5, lineHeight: 1.7, marginTop: 10 }}>
+            Your browser couldn't read the MAC of <b style={{ color: "#fff" }}>{deviceName || "your cube"}</b> automatically.
+            GAN / MoYu / QiYi cubes need it for decryption. Find it in your cube's official app
+            (GAN: Cube Station → cube settings), then enter it below.
+          </p>
+          <div className="font-mono" style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface-2)", fontSize: 12, lineHeight: 1.7, color: "#A1A1AA" }}>
+            <b style={{ color: "#fff" }}>Tip (Chrome/Edge):</b> open a new tab, go to{" "}
+            <code data-testid="mac-tip-url" style={{ userSelect: "all", color: "var(--active)", fontWeight: 700 }}>chrome://bluetooth-internals</code>,
+            open the <b style={{ color: "#fff" }}>Devices</b> tab, click <b style={{ color: "#fff" }}>Scan</b>, find your cube and read its <b style={{ color: "#fff" }}>Address</b>.
+          </div>
+          <input
+            data-testid="mac-input"
+            autoFocus
+            value={mac}
+            onChange={(e) => setMac(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && valid) submit(); }}
+            placeholder="AA:BB:CC:DD:EE:FF"
+            style={{ ...selectStyle, width: "100%", marginTop: 16, letterSpacing: "0.08em", boxSizing: "border-box" }}
+          />
+          {mac && !valid && <div className="font-mono" style={{ color: "var(--error)", fontSize: 11, marginTop: 6 }}>Format: AA:BB:CC:DD:EE:FF</div>}
+          <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, cursor: "pointer" }}>
+            <input data-testid="mac-remember" type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>Remember this MAC address</span>
+          </label>
+          <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "flex-end", flexWrap: "wrap" }}>
+            <button data-testid="mac-cancel-btn" onClick={() => onSubmit(null)} style={ghostBtn}>Cancel</button>
+            <button data-testid="mac-submit-btn" onClick={submit} disabled={!valid}
+              style={{ ...moveBtn, minWidth: 120, padding: "9px 18px", opacity: valid ? 1 : 0.4, background: "var(--active)", borderColor: "var(--active)" }}>
+              Connect
+            </button>
+          </div>
+        </motion.div>
+      </div>
     </>,
     document.body
   );
@@ -785,33 +793,40 @@ function ConfirmDialog({ title, message, confirmLabel = "Confirm", cancelLabel =
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onCancel, onConfirm]);
-  const modalStyle = isMobile
-    ? { position: "fixed", top: "50%", left: 12, right: 12, transform: "translateY(-50%)", width: "auto", maxHeight: "88dvh", overflowY: "auto", boxSizing: "border-box" }
-    : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", width: 440, maxWidth: "94vw", maxHeight: "92dvh", overflowY: "auto", boxSizing: "border-box" };
+  const modalStyle = {
+    width: isMobile ? "auto" : 440,
+    maxWidth: "94vw",
+    maxHeight: "92dvh",
+    overflowY: "auto",
+    boxSizing: "border-box",
+  };
   return createPortal(
     <>
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         onClick={onCancel}
         style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 80 }} />
-      <motion.div
-        data-testid="confirm-dialog"
-        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
-        transition={{ duration: 0.15 }}
-        style={{ ...modalStyle, background: "var(--surface)", border: "1px solid var(--error)", borderRadius: 14, padding: isMobile ? 20 : 26, zIndex: 81 }}
-      >
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <AlertTriangle size={22} style={{ color: "var(--error)", flexShrink: 0 }} />
-          <h2 className="font-head" style={{ fontSize: 22, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>{title}</h2>
-        </div>
-        <p className="font-mono" style={{ color: "#A1A1AA", fontSize: 13, lineHeight: 1.7, marginTop: 14 }}>{message}</p>
-        <div style={{ display: "flex", gap: 10, marginTop: 24, justifyContent: "flex-end", flexWrap: "wrap" }}>
-          <button data-testid="confirm-cancel-btn" onClick={onCancel} style={ghostBtn}>{cancelLabel}</button>
-          <button data-testid="confirm-accept-btn" autoFocus onClick={onConfirm}
-            style={{ ...moveBtn, minWidth: 140, padding: "9px 18px", background: "var(--error)", borderColor: "var(--error)", color: "#fff" }}>
-            {confirmLabel}
-          </button>
-        </div>
-      </motion.div>
+      <div style={{ position: "fixed", inset: 0, zIndex: 81, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 12 : 24, pointerEvents: "none", boxSizing: "border-box" }}>
+        <motion.div
+          data-testid="confirm-dialog"
+          initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+          transition={{ duration: 0.15 }}
+          className="theme-scroll"
+          style={{ ...modalStyle, pointerEvents: "auto", background: "var(--surface)", border: "1px solid var(--error)", borderRadius: 14, padding: isMobile ? 20 : 26 }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <AlertTriangle size={22} style={{ color: "var(--error)", flexShrink: 0 }} />
+            <h2 className="font-head" style={{ fontSize: 22, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>{title}</h2>
+          </div>
+          <p className="font-mono" style={{ color: "#A1A1AA", fontSize: 13, lineHeight: 1.7, marginTop: 14 }}>{message}</p>
+          <div style={{ display: "flex", gap: 10, marginTop: 24, justifyContent: "flex-end", flexWrap: "wrap" }}>
+            <button data-testid="confirm-cancel-btn" onClick={onCancel} style={ghostBtn}>{cancelLabel}</button>
+            <button data-testid="confirm-accept-btn" autoFocus onClick={onConfirm}
+              style={{ ...moveBtn, minWidth: 140, padding: "9px 18px", background: "var(--error)", borderColor: "var(--error)", color: "#fff" }}>
+              {confirmLabel}
+            </button>
+          </div>
+        </motion.div>
+      </div>
     </>,
     document.body
   );
