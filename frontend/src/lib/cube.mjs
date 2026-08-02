@@ -200,7 +200,63 @@ const CATEGORY_CHAR_TYPE = {
 // Full case key ("BD", "JPR", "GAJA", "ADK") -> display string in the user's scheme.
 export function caseCodeToDisplay(codeKey, category, maps = SCHEMES.speffz) {
   const typeFn = CATEGORY_CHAR_TYPE[category] || (() => "corner");
-  return codeKey.split("").map((ch, i) => codeToSchemeLetter(ch, typeFn(i), maps)).join("");
+  const letters = codeKey.split("").map((ch, i) => codeToSchemeLetter(ch, typeFn(i), maps));
+  // LTCT / T2C convention: two plain letters then the twisted piece in brackets, e.g. CB[S], AU[J].
+  if (category === "ltct" && letters.length === 3) return `${letters[0]}${letters[1]}[${letters[2]}]`;
+  // Parity: 2 edge letters + 2 corner letters, separated by a space, e.g. "AB CD".
+  if (category === "parity" && letters.length === 4) return `${letters[0]}${letters[1]} ${letters[2]}${letters[3]}`;
+  return letters.join("");
+}
+
+// blddb code char -> our canonical facelet index (orientation-independent).
+export function codeCharToFacelet(codeChar, type) {
+  const map = type === "corner" ? CHICHU_CORNER_CODE_TO_IDX : CHICHU_EDGE_CODE_TO_IDX;
+  const idx = map[codeChar];
+  return idx == null ? null : idx;
+}
+
+// A facelet index -> blddb "position" name (faces ordered U/D, F/B, L/R, rotated so the
+// sticker's own face is first). Corner e.g. 8 -> "UFR", 6 -> "UFL"; edge 1 -> "UB".
+const FACE_OF = (v) => {
+  if (v[1] > 0) return "U"; if (v[1] < 0) return "D";
+  if (v[2] > 0) return "F"; if (v[2] < 0) return "B";
+  if (v[0] > 0) return "R"; return "L";
+};
+export function faceletToPosition(idx) {
+  const { pos, n } = FACELETS[idx];
+  const faces = []; // priority order: U/D (y), F/B (z), L/R (x)
+  if (pos[1] !== 0) faces.push([0, pos[1], 0]);
+  if (pos[2] !== 0) faces.push([0, 0, pos[2]]);
+  if (pos[0] !== 0) faces.push([pos[0], 0, 0]);
+  const stickerFace = FACE_OF(n);
+  const names = faces.map(FACE_OF);
+  const start = names.indexOf(stickerFace);
+  const rotated = names.slice(start).concat(names.slice(0, start));
+  return rotated.join("");
+}
+
+// blddb case code (e.g. "ADM", "JAE", "GAJA") -> array of position names for a deep link.
+export function caseKeyToPositions(codeKey, category) {
+  const typeFn = category === "edge" ? () => "edge"
+    : category === "corner" ? () => "corner"
+    : (CATEGORY_CHAR_TYPE[category] || (() => "corner"));
+  return codeKey.split("").map((ch, i) => {
+    const f = codeCharToFacelet(ch, typeFn(i));
+    return f == null ? ch : faceletToPosition(f);
+  });
+}
+
+// Corner cubie facelet triplets (U/D-face sticker listed first) — canonical URFDLB model.
+export const CORNER_FACELET_GROUPS = [
+  [0, 36, 47], [2, 45, 11], [8, 9, 20], [6, 18, 38],
+  [27, 24, 44], [29, 26, 15], [35, 17, 51], [33, 42, 53],
+];
+// LTCT & T2C both cycle 3 corners incl. the UFR buffer. LTCT = buffer is the first cycle piece
+// (normal C buffer + a twisted last target); T2C = the buffer itself is the twisted piece.
+const LTCT_BUFFER_IDXS = [8, 9, 20];
+export function ltctCaseKind(codeKey) {
+  const idx = CHICHU_CORNER_CODE_TO_IDX[codeKey[0]];
+  return LTCT_BUFFER_IDXS.includes(idx) ? "ltct" : "t2c";
 }
 
 // --- Cube orientation: remap a lettering scheme to a user-chosen (top, front) color pair ---

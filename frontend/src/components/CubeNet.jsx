@@ -25,31 +25,36 @@ export default function CubeNet({ state, highlights = {}, orientation }) {
   const bufferSlot = highlights.bufferIdx != null ? gInv[highlights.bufferIdx] : null;
   const t1Slot = highlights.t1Idx != null ? gInv[highlights.t1Idx] : null;
   const t2Slot = highlights.t2Idx != null ? gInv[highlights.t2Idx] : null;
-  // Optional multi-sticker highlight set (used by flips/twists/parity/ltct cases).
-  const extraSlots = Array.isArray(highlights.set) ? highlights.set.map((h) => gInv[h]).filter((x) => x != null) : [];
-  const extraSet = new Set(extraSlots);
-  const active = new Set([bufferSlot, t1Slot, t2Slot, ...extraSlots].filter((x) => x != null));
+  // Optional multi-sticker highlight sets (used by flips/twists/parity/ltct cases).
+  const mapSlots = (arr) => (Array.isArray(arr) ? arr.map((h) => gInv[h]).filter((x) => x != null) : []);
+  const extraSlots = mapSlots(highlights.set);        // legacy green set
+  const greenSlots = mapSlots(highlights.greenSet);   // green (correct target letters)
+  const blueSlots = mapSlots(highlights.blueSet);     // blue (buffer / bracketed twisted piece)
+  const greenSet = new Set([t1Slot, t2Slot, ...extraSlots, ...greenSlots].filter((x) => x != null));
+  const blueSet = new Set([bufferSlot, ...blueSlots].filter((x) => x != null));
+  const active = new Set([...greenSet, ...blueSet]);
   const hasHighlight = active.size > 0;
 
   const cells = [];
   for (let i = 0; i < 54; i++) {
     const { row, col } = cellFor(i);
     const color = COLORS[state[g[i]]] || "#333";
-    const isBuffer = i === bufferSlot;
-    const isTarget = i === t1Slot || i === t2Slot || extraSet.has(i);
+    const isBlue = blueSet.has(i);
+    const isGreen = greenSet.has(i);
     const dim = hasHighlight && !active.has(i);
     cells.push(
       <div
         key={i}
         data-testid={`sticker-${i}`}
+        data-highlighted={active.has(i) ? "true" : "false"}
         style={{
           gridRow: row + 1,
           gridColumn: col + 1,
           background: color,
           opacity: dim ? 0.28 : 1,
-          boxShadow: isBuffer
+          boxShadow: isBlue
             ? "0 0 0 2px #007AFF, 0 0 8px #007AFF"
-            : isTarget
+            : isGreen
             ? "0 0 0 2px #39FF14, 0 0 8px #39FF14"
             : "inset 0 0 0 1px rgba(0,0,0,0.55)",
           borderRadius: 2,
