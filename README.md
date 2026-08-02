@@ -9,34 +9,27 @@ The app is a fully client-side React SPA (no backend) — all data lives in `loc
 
 ## Development environment
 
-The whole app lives in the [`frontend/`](./frontend) folder.
+The whole app lives in the [`frontend/`](./frontend) folder and is powered by **Vite**.
 
 ### Prerequisites
 
-- **Node.js ≥ 18** (tested on 20). Install via [nodejs.org](https://nodejs.org) or [nvm](https://github.com/nvm-sh/nvm):
-  ```bash
-  nvm install 20 && nvm use 20
-  ```
-- **Yarn (classic, v1)** — enable it through Corepack (bundled with Node), or install globally:
-  ```bash
-  corepack enable          # recommended
-  # or:
-  npm install -g yarn
-  ```
+- **Bun** (recommended, specified in `package.json`) or **Node.js ≥ 18** (with npm/yarn/pnpm):
+  - [Install Bun](https://bun.sh) (`powershell -c "irm bun.sh/install.ps1"` on Windows, `curl -fsSL https://bun.sh/install` on macOS/Linux).
 
 ### Setup & run
 
 ```bash
 cd frontend
-yarn install     # install dependencies
-yarn start       # dev server with hot reload → http://localhost:3000
+bun install     # install dependencies
+bun dev         # start Vite dev server with fast HMR → http://localhost:3000
 ```
 
 ### Other commands
 
 ```bash
-yarn build                      # production build into frontend/build
-yarn deploy                     # build + publish to GitHub Pages (gh-pages)
+bun run build                   # production build with Vite into frontend/build
+bun run preview                 # preview production build locally
+bun run deploy                  # build + publish to GitHub Pages (gh-pages)
 node src/lib/cube.test.mjs      # run the cube-engine unit tests
 ```
 
