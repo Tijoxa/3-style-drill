@@ -420,8 +420,16 @@ export default function App() {
   // keyboard controls
   useEffect(() => {
     const handler = (e) => {
-      if (drawer || hintOpen || subsetOpen || macPrompt) return;
+      if (drawer || subsetOpen || macPrompt) return;
       const k = e.key;
+      // While the Hint panel is open, still let Space validate the case (it auto-closes the
+      // hint via onSuccess) and Backspace skip; other trainer keys stay disabled so the modal
+      // keeps its own behavior.
+      if (hintOpen) {
+        if (k === " ") { e.preventDefault(); validate(); return; }
+        if (k === "Backspace") { e.preventDefault(); setHintOpen(false); skipCase(); return; }
+        return;
+      }
       if (k === "Backspace") { e.preventDefault(); skipCase(); return; }
       if (k === " ") { e.preventDefault(); validate(); return; }
       if (k === "Escape") { e.preventDefault(); resetAndStop(); return; }
