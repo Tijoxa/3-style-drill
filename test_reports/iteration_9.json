@@ -1,0 +1,38 @@
+{
+  "verdict": "fixed",
+  "user_reported_bug": "for the hint panel, i want it to close (if open) right after the case has been solved",
+  "summary": "No relevant testing skill found. Focused frontend retest inspected the uncommitted App.js fix and verified both requested solve paths in the live preview: Space after timer start while hint-modal is open, and window.__trainer.solveCurrent() while hint-modal is open. In both cases [data-testid=hint-modal] detached and [data-testid=hud-solved] incremented by 1. No MOCKED APIs used.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/tests/hint_autoclose_verification.py",
+    "/app/tests/mcp_hint_autoclose_script.py"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Inspected /app/frontend/src/App.js: onSuccess() calls setHintOpen(false), and the keyboard handler now allows Space to call validate() while hintOpen is true. handleScreenTap still guards on hintOpen, but the requested retest path was Space plus programmatic cube-state solve."
+  ],
+  "updated_files": [
+    "/app/tests/hint_autoclose_verification.py",
+    "/app/tests/mcp_hint_autoclose_script.py",
+    "/app/test_reports/bug_verification_9.json",
+    "/app/test_reports/iteration_9.json",
+    "/app/test_reports/hint_autoclose_browser/"
+  ],
+  "success_rate": {
+    "backend": "n/a",
+    "frontend": "100% (2/2 requested hint auto-close paths passed)"
+  },
+  "seed_data_creation": "None. Test cleared browser localStorage to make hud-solved increments deterministic.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Skill lookup returned no relevant testing skill. git status showed uncommitted frontend/src/App.js changes; git diff showed the keydown guard was changed to allow Space/Backspace while hintOpen. Browser automation evidence: Path A started timer with first Space, opened hint, second Space closed modal and solved count 0->1. Path B opened hint, ran window.__trainer.solveCurrent(), modal closed and solved count 1->2. No page error messages were detected.",
+  "rca_of_the_issue": "Previously, Space was blocked by the keyboard handler when hintOpen was true, so validate()/onSuccess() never ran. The applied change routes Space to validate() while the hint modal is open; onSuccess() then closes the hint with setHintOpen(false) and increments session.solved."
+}

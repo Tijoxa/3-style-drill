@@ -9,7 +9,8 @@ import {
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
-  orientMaps, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay,
+  orientMaps, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay, ltctCaseKind,
+  codeCharToFacelet, caseKeyToPositions,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
 import { fetchHints, fetchCaseHints, STYLE_OPTIONS, CATEGORY_STYLE_OPTIONS, loadCategoryCases } from "./lib/blddb";
@@ -21,15 +22,16 @@ const STATS_KEY = "bld3style_stats_v1";
 const SETTINGS_KEY = "bld3style_settings_v1";
 const NEW_CATEGORIES = ["flips", "twists", "parity", "ltct"];
 const CATEGORY_META = {
-  flips:  { label: "Edge Flips",    short: "EDGE FLIPS",    url: "https://v2.blddb.net/flips" },
+  flips: { label: "Edge Flips", short: "EDGE FLIPS", url: "https://v2.blddb.net/flips" },
   twists: { label: "Corner Twists", short: "CORNER TWISTS", url: "https://v2.blddb.net/twists" },
-  parity: { label: "Parity",        short: "PARITY",        url: "https://v2.blddb.net/parity" },
-  ltct:   { label: "LTCT & T2C",    short: "LTCT / T2C",    url: "https://v2.blddb.net/ltct" },
+  parity: { label: "Parity", short: "PARITY", url: "https://v2.blddb.net/parity" },
+  ltct: { label: "LTCT & T2C", short: "LTCT / T2C", url: "https://v2.blddb.net/ltct" },
 };
+const LTCT_MODES_AVAILABLE = [["ltct", "LTCT"], ["t2c", "T2C"]];
 const FLIP_COUNTS_AVAILABLE = [2];
 const TWIST_COUNTS_AVAILABLE = [2, 3, 4, 5, 6, 7, 8];
 // Maps the active drill mode to the matching Case Subset view (parity/ltct have no subset config → corners).
-const MODE_TO_SUBSET_VIEW = { corners: "corner", edges: "edge", flips: "flips", twists: "twists", parity: "corner", ltct: "corner" };
+const MODE_TO_SUBSET_VIEW = { corners: "corner", edges: "edge", flips: "flips", twists: "twists", parity: "corner", ltct: "ltct" };
 const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
 const getMaps = (scheme, orientation) => orientMaps(SCHEMES[scheme] || SCHEMES.speffz, orientation);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -55,10 +57,10 @@ function beep(freq, ok) {
     g.gain.setValueAtTime(0.08, ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.15);
     o.start(); o.stop(ctx.currentTime + 0.16);
-  } catch {}
+  } catch { }
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], orientation: { top: "white", front: "green" }, distribution: "uniform", useSeed: false, seed: 42, srTimeoutMs: 10000, disabledCases: {} };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], ltctModes: ["ltct", "t2c"], orientation: { top: "white", front: "green" }, distribution: "uniform", useSeed: false, seed: 42, srTimeoutMs: 10000, disabledCases: {} };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 
 export default function App() {
@@ -139,6 +141,7 @@ export default function App() {
       let keys = Object.keys(recMap);
       if (m === "flips") keys = keys.filter((k) => (s.flipCounts || [2]).includes(k.length));
       else if (m === "twists") keys = keys.filter((k) => (s.twistCounts || [2]).includes(k.length));
+      else if (m === "ltct") { const modes = s.ltctModes || ["ltct", "t2c"]; keys = keys.filter((k) => modes.includes(ltctCaseKind(k))); }
       if (!keys.length) { clearCase(); return; }
       const cur = cubeStateRef.current;
       const spaced = s.distribution === "spaced";
@@ -166,9 +169,17 @@ export default function App() {
             caseStartRef.current = null;
           }
           setPair({ code: kkey, display: caseCodeToDisplay(kkey, m, catMaps), type: m });
-          const set = [];
-          for (let i = 0; i < 54; i++) if (target[i] !== cur[i]) set.push(i);
-          setHighlights({ set });
+          // Highlight the letter stickers (one face per piece): flips/twists = all green;
+          // ltct/t2c = first two green + bracketed (twisted) piece blue; parity = 1st edge &
+          // 1st corner blue, the other two green.
+          const chars = kkey.split("");
+          const charType = (i) => (m === "flips" ? "edge" : m === "twists" ? "corner" : m === "parity" ? (i < 2 ? "edge" : "corner") : "corner");
+          const fFor = (i) => codeCharToFacelet(chars[i], charType(i));
+          let greenSet = [], blueSet = [];
+          if (m === "ltct" && chars.length === 3) { greenSet = [fFor(0), fFor(1)]; blueSet = [fFor(2)]; }
+          else if (m === "parity" && chars.length === 4) { blueSet = [fFor(0), fFor(2)]; greenSet = [fFor(1), fFor(3)]; }
+          else { greenSet = chars.map((_, i) => fFor(i)); }
+          setHighlights({ greenSet: greenSet.filter((x) => x != null), blueSet: blueSet.filter((x) => x != null) });
           return;
         }
       }
@@ -237,6 +248,7 @@ export default function App() {
   const onSuccess = useCallback((capturedElapsed) => {
     if (busyRef.current) return;
     busyRef.current = true;
+    setHintOpen(false); // close the hint panel (if open) as soon as the case is solved
     const elapsed = capturedElapsed != null
       ? capturedElapsed
       : (caseStoppedRef.current != null ? caseStoppedRef.current : (caseStartRef.current ? Date.now() - caseStartRef.current : 0));
@@ -386,7 +398,8 @@ export default function App() {
   }, [drawer, hintOpen, subsetOpen, macPrompt, onSuccess, startTiming, resetAndStop]);
 
   // init first case + rebuild on mode / scheme / buffer change
-  useEffect(() => { buildCase(); /* eslint-disable-next-line */ }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { buildCase(); }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts, settings.ltctModes]);
 
   // Load the algorithm set for extra categories (flips/twists/parity/ltct), then build a case.
   useEffect(() => {
@@ -424,8 +437,16 @@ export default function App() {
   // keyboard controls
   useEffect(() => {
     const handler = (e) => {
-      if (drawer || hintOpen || subsetOpen || macPrompt) return;
+      if (drawer || subsetOpen || macPrompt) return;
       const k = e.key;
+      // While the Hint panel is open, still let Space validate the case (it auto-closes the
+      // hint via onSuccess) and Backspace skip; other trainer keys stay disabled so the modal
+      // keeps its own behavior.
+      if (hintOpen) {
+        if (k === " ") { e.preventDefault(); validate(); return; }
+        if (k === "Backspace") { e.preventDefault(); setHintOpen(false); skipCase(); return; }
+        return;
+      }
       if (k === "Backspace") { e.preventDefault(); skipCase(); return; }
       if (k === " ") { e.preventDefault(); validate(); return; }
       if (k === "Escape") { e.preventDefault(); resetAndStop(); return; }
@@ -811,7 +832,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   const maps = getMaps(scheme, settings.orientation);
   const [view, setView] = useState(initialView); // corner | edge | flips | twists (synced with active drill mode on open)
   const type = view === "edge" ? "edge" : "corner";
-  const isPieceView = view === "flips" || view === "twists";
+  const isPieceView = view === "flips" || view === "twists" || view === "ltct";
   const buffer = type === "corner" ? settings.cornerBuffer : settings.edgeBuffer;
   const letters = useMemo(
     () => Object.keys(type === "corner" ? maps.corner : maps.edge).sort(),
@@ -833,7 +854,8 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   const [work, setWork] = useState(seed);
   const workRef = useRef(work);
   useEffect(() => { workRef.current = work; }, [work]);
-  useEffect(() => { setWork(seed()); /* eslint-disable-next-line */ }, [type, scheme]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setWork(seed()); }, [type, scheme]);
 
   const commit = useCallback((w) => {
     setSettings((s) => {
@@ -945,6 +967,13 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     return { ...s, [field]: next.sort((a, b) => a - b) };
   });
 
+  // Toggle an LTCT / T2C sub-category (neither is allowed → empty pool shows "--").
+  const toggleLtctMode = (v) => setSettings((s) => {
+    const cur = s.ltctModes || ["ltct", "t2c"];
+    const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
+    return { ...s, ltctModes: next };
+  });
+
   // A pair contains letter L; is every drillable pair involving L already disabled?
   const allDisabledForLetter = useCallback((L) => letters.every((x) => {
     if (x === L || isImpossible(L, x) || isBufferExcluded(L, x)) return true;
@@ -1001,121 +1030,144 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
           transition={{ duration: 0.15 }}
           style={{ ...modalStyle, pointerEvents: "auto", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: pad }}
         >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Grid3X3 size={20} style={{ color: "var(--active)" }} />
-            <h2 className="font-head" style={{ fontSize: 22, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>Case subset</h2>
-          </div>
-          <button data-testid="subset-close-btn" onClick={onClose} style={iconBtn}><X size={18} /></button>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
-          <SubsetViewSwitch view={view} setView={setView} />
-          {!isPieceView && (
-            <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
-              buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} pairs active
-            </span>
-          )}
-        </div>
-
-        {view === "flips" && (
-          <div data-testid="count-selectors" style={{ marginTop: 18 }}>
-            <CountRow label="Edge flips (count)" testidPrefix="flip-count" available={FLIP_COUNTS_AVAILABLE} selected={settings.flipCounts || [2]} onToggle={toggleCount("flipCounts")} />
-            <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
-              How many edges are flipped per drilled case. (No per-case selection for flips yet.)
-            </p>
-          </div>
-        )}
-        {view === "twists" && (
-          <div data-testid="count-selectors" style={{ marginTop: 18 }}>
-            <CountRow label="Corner twists (count)" testidPrefix="twist-count" available={TWIST_COUNTS_AVAILABLE} selected={settings.twistCounts || [2]} onToggle={toggleCount("twistCounts")} />
-            <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
-              How many corners are twisted per drilled case. (No per-case selection for twists yet.)
-            </p>
-          </div>
-        )}
-
-        {!isPieceView && (
-        <>
-        {/* Grid */}
-        <div style={{ overflowX: "hidden", touchAction: isMobile ? "pan-y" : "none", paddingBottom: 4, marginTop: 14 }}>
-          <div style={{ display: "inline-block", userSelect: "none" }}>
-            {/* column header */}
-            <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
-              {letters.map((t2) => (
-                <button key={t2} data-testid={`subset-col-${t2}`}
-                  onClick={() => commitBulk(allDisabledForLetter(t2) ? "enable" : "disable", (a, b) => a === t2 || b === t2)}
-                  className="font-mono"
-                  style={{ width: cell, height: label, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-                  {t2.toUpperCase()}
-                </button>
-              ))}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Grid3X3 size={20} style={{ color: "var(--active)" }} />
+              <h2 className="font-head" style={{ fontSize: 22, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>Case subset</h2>
             </div>
-            {letters.map((t1) => (
-              <div key={t1} style={{ display: "flex", gap, marginBottom: gap, alignItems: "center" }}>
-                <button data-testid={`subset-row-${t1}`}
-                  onClick={() => commitBulk(allDisabledForLetter(t1) ? "enable" : "disable", (a, b) => a === t1 || b === t1)}
-                  className="font-mono"
-                  style={{ width: label, height: cell, marginRight: gap, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "right" }}>
-                  {t1.toUpperCase()}
-                </button>
-                {letters.map((t2) => {
-                  if (isHidden(t1, t2)) {
-                    // upper-right (mirror) cells are not drilled here — keep the layout square
-                    return <div key={t2} style={{ width: cell, height: cell, flex: "0 0 auto" }} />;
-                  }
-                  const st = stateOf(t1, t2);
-                  const isBuf = st === "bufferEnabled" || st === "bufferDisabled";
-                  const imp = st === "impossible";
+            <button data-testid="subset-close-btn" onClick={onClose} style={iconBtn}><X size={18} /></button>
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
+            <SubsetViewSwitch view={view} setView={setView} />
+            {!isPieceView && (
+              <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
+                buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} pairs active
+              </span>
+            )}
+          </div>
+
+          {view === "flips" && (
+            <div data-testid="count-selectors" style={{ marginTop: 18 }}>
+              <CountRow label="Edge flips (count)" testidPrefix="flip-count" available={FLIP_COUNTS_AVAILABLE} selected={settings.flipCounts || [2]} onToggle={toggleCount("flipCounts")} />
+              <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
+                How many edges are flipped per drilled case. (No per-case selection for flips yet.)
+              </p>
+            </div>
+          )}
+          {view === "twists" && (
+            <div data-testid="count-selectors" style={{ marginTop: 18 }}>
+              <CountRow label="Corner twists (count)" testidPrefix="twist-count" available={TWIST_COUNTS_AVAILABLE} selected={settings.twistCounts || [2]} onToggle={toggleCount("twistCounts")} />
+              <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
+                How many corners are twisted per drilled case. (No per-case selection for twists yet.)
+              </p>
+            </div>
+          )}
+          {view === "ltct" && (
+            <div data-testid="ltct-selectors" style={{ marginTop: 18 }}>
+              <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA", display: "block", marginBottom: 6 }}>Case types</span>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {LTCT_MODES_AVAILABLE.map(([v, l]) => {
+                  const on = (settings.ltctModes || ["ltct", "t2c"]).includes(v);
                   return (
-                    <div
-                      key={t2}
-                      data-testid={`subset-cell-${t1}-${t2}`}
-                      data-state={st}
-                      data-subcell="1"
-                      data-t1={t1}
-                      data-t2={t2}
-                      onPointerDown={(e) => { if (!imp) { e.preventDefault(); startDrag(t1, t2); } }}
-                      onPointerEnter={() => { if (!imp) extendDrag(t1, t2); }}
-                      title={`${t1.toUpperCase()}${t2.toUpperCase()}`}
+                    <button key={v} data-testid={`ltct-mode-${v}`} data-active={on} onClick={() => toggleLtctMode(v)} className="font-mono"
                       style={{
-                        width: cell, height: cell, borderRadius: 3, flex: "0 0 auto",
-                        background: SUBSET_COLORS[st],
-                        backgroundImage: isBuf ? STRIPES : "none",
-                        opacity: isBuf ? 0.42 : 1,
-                        border: imp ? "1px solid #2a2a2e" : "1px solid rgba(0,0,0,0.35)",
-                        cursor: imp ? "not-allowed" : "pointer",
-                      }}
-                    />
+                        minWidth: 66, height: 34, padding: "0 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 700, letterSpacing: "0.04em",
+                        border: on ? "1px solid var(--active)" : "1px solid var(--line)",
+                        background: on ? "var(--success)" : "var(--surface-2)", color: on ? "#04120a" : "#7a7a7a"
+                      }}>
+                      {l}
+                    </button>
                   );
                 })}
               </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Controls + instructions + legend (below grid) */}
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
-          <button data-testid="subset-enable-all" onClick={() => commitBulk("enable")} style={{ ...ghostBtn, fontSize: 12, flex: "1 1 120px", justifyContent: "center" }}>Enable all</button>
-          <button data-testid="subset-disable-all" onClick={() => commitBulk("disable")} style={{ ...ghostBtn, fontSize: 12, flex: "1 1 120px", justifyContent: "center" }}>Disable all</button>
-        </div>
-
-        <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 12, lineHeight: 1.6 }}>
-          One cell = one pair {"{A,B}"} (both commutators AB and BA). Only the bottom-left triangle is shown since a pair is learnt as a single unit; enabling/disabling a cell applies to both directions. Click or drag to paint. Click a row/column label to toggle every pair containing that letter.
-        </p>
-
-        {/* Legend (below grid) */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
-          {legend.map(([k, l]) => (
-            <div key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 14, height: 14, borderRadius: 3, background: SUBSET_COLORS[k], opacity: k.startsWith("buffer") ? 0.4 : 1, backgroundImage: k.startsWith("buffer") ? STRIPES : "none", border: k === "impossible" ? "1px solid #2a2a2e" : "none", display: "inline-block", flex: "0 0 auto" }} />
-              <span className="font-mono" style={{ fontSize: 11, color: "#A1A1AA" }}>{l}</span>
+              <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
+                <b style={{ color: "#A1A1AA" }}>LTCT</b> = C-buffer cycle with a twisted last target (<span style={{ color: "#A1A1AA" }}>CB[S]</span>). <b style={{ color: "#A1A1AA" }}>T2C</b> = twisted buffer with two swapped corners (<span style={{ color: "#A1A1AA" }}>AU[J]</span>). Select either, both, or neither.
+              </p>
             </div>
-          ))}
-        </div>
-        </>
-        )}
-      </motion.div>
+          )}
+
+          {!isPieceView && (
+            <>
+              {/* Grid */}
+              <div style={{ overflowX: "hidden", touchAction: isMobile ? "pan-y" : "none", paddingBottom: 4, marginTop: 14 }}>
+                <div style={{ display: "inline-block", userSelect: "none" }}>
+                  {/* column header */}
+                  <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
+                    {letters.map((t2) => (
+                      <button key={t2} data-testid={`subset-col-${t2}`}
+                        onClick={() => commitBulk(allDisabledForLetter(t2) ? "enable" : "disable", (a, b) => a === t2 || b === t2)}
+                        className="font-mono"
+                        style={{ width: cell, height: label, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+                        {t2.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                  {letters.map((t1) => (
+                    <div key={t1} style={{ display: "flex", gap, marginBottom: gap, alignItems: "center" }}>
+                      <button data-testid={`subset-row-${t1}`}
+                        onClick={() => commitBulk(allDisabledForLetter(t1) ? "enable" : "disable", (a, b) => a === t1 || b === t1)}
+                        className="font-mono"
+                        style={{ width: label, height: cell, marginRight: gap, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "right" }}>
+                        {t1.toUpperCase()}
+                      </button>
+                      {letters.map((t2) => {
+                        if (isHidden(t1, t2)) {
+                          // upper-right (mirror) cells are not drilled here — keep the layout square
+                          return <div key={t2} style={{ width: cell, height: cell, flex: "0 0 auto" }} />;
+                        }
+                        const st = stateOf(t1, t2);
+                        const isBuf = st === "bufferEnabled" || st === "bufferDisabled";
+                        const imp = st === "impossible";
+                        return (
+                          <div
+                            key={t2}
+                            data-testid={`subset-cell-${t1}-${t2}`}
+                            data-state={st}
+                            data-subcell="1"
+                            data-t1={t1}
+                            data-t2={t2}
+                            onPointerDown={(e) => { if (!imp) { e.preventDefault(); startDrag(t1, t2); } }}
+                            onPointerEnter={() => { if (!imp) extendDrag(t1, t2); }}
+                            title={`${t1.toUpperCase()}${t2.toUpperCase()}`}
+                            style={{
+                              width: cell, height: cell, borderRadius: 3, flex: "0 0 auto",
+                              background: SUBSET_COLORS[st],
+                              backgroundImage: isBuf ? STRIPES : "none",
+                              opacity: isBuf ? 0.42 : 1,
+                              border: imp ? "1px solid #2a2a2e" : "1px solid rgba(0,0,0,0.35)",
+                              cursor: imp ? "not-allowed" : "pointer",
+                            }}
+                          />
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Controls + instructions + legend (below grid) */}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+                <button data-testid="subset-enable-all" onClick={() => commitBulk("enable")} style={{ ...ghostBtn, fontSize: 12, flex: "1 1 120px", justifyContent: "center" }}>Enable all</button>
+                <button data-testid="subset-disable-all" onClick={() => commitBulk("disable")} style={{ ...ghostBtn, fontSize: 12, flex: "1 1 120px", justifyContent: "center" }}>Disable all</button>
+              </div>
+
+              <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 12, lineHeight: 1.6 }}>
+                One cell = one pair {"{A,B}"} (both commutators AB and BA). Only the bottom-left triangle is shown since a pair is learnt as a single unit; enabling/disabling a cell applies to both directions. Click or drag to paint. Click a row/column label to toggle every pair containing that letter.
+              </p>
+
+              {/* Legend (below grid) */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
+                {legend.map(([k, l]) => (
+                  <div key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 14, height: 14, borderRadius: 3, background: SUBSET_COLORS[k], opacity: k.startsWith("buffer") ? 0.4 : 1, backgroundImage: k.startsWith("buffer") ? STRIPES : "none", border: k === "impossible" ? "1px solid #2a2a2e" : "none", display: "inline-block", flex: "0 0 auto" }} />
+                    <span className="font-mono" style={{ fontSize: 11, color: "#A1A1AA" }}>{l}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </motion.div>
       </div>
     </>,
     document.body
@@ -1212,31 +1264,37 @@ function SubsetViewSwitch({ view, setView }) {
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
-  const MORE = [["flips", "Edge flips", "EDGE FLIPS"], ["twists", "Corner twists", "CORNER TWISTS"]];
-  const moreActive = view === "flips" || view === "twists";
+  const MORE = [["flips", "Edge flips", "EDGE FLIPS"], ["twists", "Corner twists", "CORNER TWISTS"], ["ltct", "LTCT & T2C", "LTCT & T2C"]];
+  const moreActive = view === "flips" || view === "twists" || view === "ltct";
   const moreLabel = moreActive ? MORE.find((m) => m[0] === view)[2] : "MORE";
   return (
     <div data-testid="subset-view-switch" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface)", position: "relative" }}>
       {[["corner", "Corners"], ["edge", "Edges"]].map(([v, l], idx) => (
         <button key={v} data-testid={`subset-view-${v}`} onClick={() => { setView(v); setOpen(false); }} className="overline font-head"
-          style={{ padding: "8px 16px", fontSize: 12, letterSpacing: "0.12em", cursor: "pointer", border: "none",
+          style={{
+            padding: "8px 16px", fontSize: 12, letterSpacing: "0.12em", cursor: "pointer", border: "none",
             background: view === v ? "var(--surface-2)" : "transparent", color: view === v ? "#fff" : "#7a7a7a",
             borderRadius: view === v && idx === 0 ? "9px 0 0 9px" : "0px",
-            boxShadow: view === v ? "inset 0 0 0 1px var(--active)" : "none" }}>{l}</button>
+            boxShadow: view === v ? "inset 0 0 0 1px var(--active)" : "none"
+          }}>{l}</button>
       ))}
       <div ref={ref} style={{ position: "relative", display: "flex" }}>
         <button data-testid="subset-view-more-btn" onClick={() => setOpen((o) => !o)} className="overline font-head"
-          style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, fontSize: 12, letterSpacing: "0.12em", cursor: "pointer", whiteSpace: "nowrap", border: "none",
+          style={{
+            padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, fontSize: 12, letterSpacing: "0.12em", cursor: "pointer", whiteSpace: "nowrap", border: "none",
             background: moreActive ? "var(--surface-2)" : "transparent", color: moreActive ? "#fff" : "#7a7a7a",
-            borderRadius: "0 9px 9px 0", boxShadow: moreActive ? "inset 0 0 0 1px var(--active)" : "none" }}>
+            borderRadius: "0 9px 9px 0", boxShadow: moreActive ? "inset 0 0 0 1px var(--active)" : "none"
+          }}>
           {moreLabel} <ChevronDown size={13} />
         </button>
         {open && (
           <div data-testid="subset-view-more-menu" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 20, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 6, minWidth: 170, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
             {MORE.map(([v, l]) => (
               <button key={v} data-testid={`subset-view-${v}`} onClick={() => { setView(v); setOpen(false); }} className="font-mono"
-                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 10px", fontSize: 13, cursor: "pointer", border: "none", borderRadius: 8,
-                  background: view === v ? "var(--surface)" : "transparent", color: view === v ? "#fff" : "#A1A1AA" }}>
+                style={{
+                  display: "block", width: "100%", textAlign: "left", padding: "9px 10px", fontSize: 13, cursor: "pointer", border: "none", borderRadius: 8,
+                  background: view === v ? "var(--surface)" : "transparent", color: view === v ? "#fff" : "#A1A1AA"
+                }}>
                 {l}
               </button>
             ))}
@@ -1280,8 +1338,10 @@ function ModeDropdown({ mode, setMode, isMobile }) {
               data-testid={`mode-${c}`}
               onClick={() => { setMode(c); setOpen(false); }}
               className="font-mono"
-              style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 10px", fontSize: 13, cursor: "pointer", border: "none", borderRadius: 8,
-                background: mode === c ? "var(--surface)" : "transparent", color: mode === c ? "#fff" : "#A1A1AA" }}
+              style={{
+                display: "block", width: "100%", textAlign: "left", padding: "9px 10px", fontSize: 13, cursor: "pointer", border: "none", borderRadius: 8,
+                background: mode === c ? "var(--surface)" : "transparent", color: mode === c ? "#fff" : "#A1A1AA"
+              }}
             >
               {CATEGORY_META[c].label}
             </button>
@@ -1306,9 +1366,11 @@ function CountRow({ label, testidPrefix, available, selected, onToggle }) {
               data-active={on}
               onClick={() => onToggle(n)}
               className="font-mono"
-              style={{ width: 34, height: 34, borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 700,
+              style={{
+                width: 34, height: 34, borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 700,
                 border: on ? "1px solid var(--active)" : "1px solid var(--line)",
-                background: on ? "var(--success)" : "var(--surface-2)", color: on ? "#04120a" : "#7a7a7a" }}
+                background: on ? "var(--success)" : "var(--surface-2)", color: on ? "#04120a" : "#7a7a7a"
+              }}
             >
               {n}
             </button>
@@ -1349,6 +1411,11 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
   useEffect(() => { if (effStyle !== style) setStyle(effStyle); }, [effStyle, style, setStyle]);
   const blddbUrl = isCategory ? CATEGORY_META[pair.type].url : (pair.type === "corner" ? "https://v2.blddb.net/corner" : "https://v2.blddb.net/edge");
   const { loading, error, data } = state;
+  // Deep link straight to this case, pre-filled on v2.blddb.net (position=piece cycle & mode=style).
+  const caseKeyStr = data && data.key;
+  const blddbCaseUrl = caseKeyStr
+    ? `${blddbUrl}?position=${caseKeyToPositions(caseKeyStr, pair.type).join("-")}&mode=${effStyle}`
+    : blddbUrl;
   const list = data && data.list ? data.list : [];
   const recAlg = data && data.recommended;
   const recComm = data && data.recCommutator;
@@ -1366,95 +1433,95 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
         onClick={onClose}
         style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 60 }} />
       <div style={{ position: "fixed", inset: 0, zIndex: 61, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 12 : 24, pointerEvents: "none", boxSizing: "border-box" }}>
-      <motion.div
-        data-testid="hint-modal"
-        initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
-        transition={{ duration: 0.15 }}
-        className="theme-scroll"
-        style={{ ...modalStyle, pointerEvents: "auto", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 18 : 24 }}
-      >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <Lightbulb size={20} style={{ color: "var(--active)" }} />
-            <h2 className="font-head" style={{ fontSize: 24, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>
-              Hint · <span data-testid="hint-pair" className="font-mono">{pairText}</span>
-            </h2>
+        <motion.div
+          data-testid="hint-modal"
+          initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.96 }}
+          transition={{ duration: 0.15 }}
+          className="theme-scroll"
+          style={{ ...modalStyle, pointerEvents: "auto", background: "var(--surface)", border: "1px solid var(--line)", borderRadius: 14, padding: isMobile ? 18 : 24 }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <Lightbulb size={20} style={{ color: "var(--active)" }} />
+              <h2 className="font-head" style={{ fontSize: 24, margin: 0, textTransform: "uppercase", letterSpacing: "0.02em" }}>
+                Hint · <span data-testid="hint-pair" className="font-mono">{pairText}</span>
+              </h2>
+            </div>
+            <button data-testid="hint-close-btn" onClick={onClose} style={iconBtn}><X size={18} /></button>
           </div>
-          <button data-testid="hint-close-btn" onClick={onClose} style={iconBtn}><X size={18} /></button>
-        </div>
 
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
-          <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA" }}>Algorithm style</span>
-          <select data-testid="hint-style-select" value={style} onChange={(e) => setStyle(e.target.value)} style={{ ...selectStyle, minWidth: 160 }}>
-            {options.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-          </select>
-        </div>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+            <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA" }}>Algorithm style</span>
+            <select data-testid="hint-style-select" value={style} onChange={(e) => setStyle(e.target.value)} style={{ ...selectStyle, minWidth: 160 }}>
+              {options.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+            </select>
+          </div>
 
-        <div style={{ marginTop: 18, minHeight: 80 }}>
-          {loading && (
-            <div data-testid="hint-loading" className="font-mono" style={{ display: "flex", alignItems: "center", gap: 10, color: "#A1A1AA", fontSize: 13, padding: "20px 0" }}>
-              <Loader2 size={16} className="spin" /> Loading algorithms from v2.blddb.net…
-            </div>
-          )}
-          {!loading && error && (
-            <div data-testid="hint-error" className="font-mono" style={{ color: "var(--error)", fontSize: 13, lineHeight: 1.6 }}>
-              Couldn't reach v2.blddb.net ({error}). Check your connection and try again.
-            </div>
-          )}
-          {!loading && !error && data && data.notFound && (
-            <div data-testid="hint-notfound" className="font-mono" style={{ color: "#A1A1AA", fontSize: 13, lineHeight: 1.6 }}>
-              No algorithm found in v2.blddb.net for this case{data.key ? ` (${data.key})` : ""}. It may be a same-piece or unsupported case.
-            </div>
-          )}
-          {!loading && !error && data && !data.notFound && (
-            <>
-              {recAlg && (
-                <div data-testid="hint-recommended" style={{ border: "1px solid var(--active)", borderRadius: 12, padding: 16, background: "var(--surface-2)" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-                    <div className="overline font-head" style={{ fontSize: 10, color: "var(--active)" }}>Recommended · {(options.find((o) => o[0] === effStyle) || [])[1]}</div>
-                    {recSources.length > 0 && <SourceInfo sources={recSources} testid="hint-rec-sources" />}
-                  </div>
-                  {recComm ? (
-                    <>
-                      <div className="font-mono" data-testid="hint-rec-comm" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.02em", wordBreak: "break-word" }}>{recComm}</div>
-                      <div className="font-mono" data-testid="hint-rec-alg" style={{ fontSize: 13, color: "#A1A1AA", marginTop: 8 }}>{recAlg}</div>
-                    </>
-                  ) : (
-                    <div className="font-mono" data-testid="hint-rec-alg" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.02em", wordBreak: "break-word" }}>{recAlg}</div>
-                  )}
-                </div>
-              )}
-
-              {rest.length > 0 && (
-                <div style={{ marginTop: 14 }}>
-                  <button data-testid="hint-toggle-all" onClick={() => setShowAll((v) => !v)} style={{ ...ghostBtn, fontSize: 12 }}>
-                    {showAll ? "Hide" : "Show"} all {list.length} algorithms
-                  </button>
-                  {showAll && (
-                    <div data-testid="hint-all-list" style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
-                      {rest.map((a, i) => (
-                        <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "var(--bg)" }}>
-                          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
-                            <div className="font-mono" style={{ fontSize: 14, fontWeight: 700, wordBreak: "break-word" }}>{a.commutator || a.alg}</div>
-                            {a.sources && a.sources.length > 0 && <SourceInfo sources={a.sources} testid={`hint-src-${i}`} />}
-                          </div>
-                          {a.commutator && <div className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", marginTop: 4 }}>{a.alg}</div>}
-                        </div>
-                      ))}
+          <div style={{ marginTop: 18, minHeight: 80 }}>
+            {loading && (
+              <div data-testid="hint-loading" className="font-mono" style={{ display: "flex", alignItems: "center", gap: 10, color: "#A1A1AA", fontSize: 13, padding: "20px 0" }}>
+                <Loader2 size={16} className="spin" /> Loading algorithms from v2.blddb.net…
+              </div>
+            )}
+            {!loading && error && (
+              <div data-testid="hint-error" className="font-mono" style={{ color: "var(--error)", fontSize: 13, lineHeight: 1.6 }}>
+                Couldn't reach v2.blddb.net ({error}). Check your connection and try again.
+              </div>
+            )}
+            {!loading && !error && data && data.notFound && (
+              <div data-testid="hint-notfound" className="font-mono" style={{ color: "#A1A1AA", fontSize: 13, lineHeight: 1.6 }}>
+                No algorithm found in v2.blddb.net for this case{data.key ? ` (${data.key})` : ""}. It may be a same-piece or unsupported case.
+              </div>
+            )}
+            {!loading && !error && data && !data.notFound && (
+              <>
+                {recAlg && (
+                  <div data-testid="hint-recommended" style={{ border: "1px solid var(--active)", borderRadius: 12, padding: 16, background: "var(--surface-2)" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                      <div className="overline font-head" style={{ fontSize: 10, color: "var(--active)" }}>Recommended · {(options.find((o) => o[0] === effStyle) || [])[1]}</div>
+                      {recSources.length > 0 && <SourceInfo sources={recSources} testid="hint-rec-sources" />}
                     </div>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+                    {recComm ? (
+                      <>
+                        <div className="font-mono" data-testid="hint-rec-comm" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.02em", wordBreak: "break-word" }}>{recComm}</div>
+                        <div className="font-mono" data-testid="hint-rec-alg" style={{ fontSize: 13, color: "#A1A1AA", marginTop: 8 }}>{recAlg}</div>
+                      </>
+                    ) : (
+                      <div className="font-mono" data-testid="hint-rec-alg" style={{ fontSize: 20, fontWeight: 800, letterSpacing: "0.02em", wordBreak: "break-word" }}>{recAlg}</div>
+                    )}
+                  </div>
+                )}
 
-        <a data-testid="hint-blddb-link" href={blddbUrl} target="_blank" rel="noreferrer"
-          className="font-mono"
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 18, fontSize: 12, color: "#A1A1AA", textDecoration: "none" }}>
-          <ExternalLink size={13} /> Data from v2.blddb.net (live)
-        </a>
-      </motion.div>
+                {rest.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <button data-testid="hint-toggle-all" onClick={() => setShowAll((v) => !v)} style={{ ...ghostBtn, fontSize: 12 }}>
+                      {showAll ? "Hide" : "Show"} all {list.length} algorithms
+                    </button>
+                    {showAll && (
+                      <div data-testid="hint-all-list" style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 8 }}>
+                        {rest.map((a, i) => (
+                          <div key={i} style={{ border: "1px solid var(--line)", borderRadius: 10, padding: "10px 12px", background: "var(--bg)" }}>
+                            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                              <div className="font-mono" style={{ fontSize: 14, fontWeight: 700, wordBreak: "break-word" }}>{a.commutator || a.alg}</div>
+                              {a.sources && a.sources.length > 0 && <SourceInfo sources={a.sources} testid={`hint-src-${i}`} />}
+                            </div>
+                            {a.commutator && <div className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", marginTop: 4 }}>{a.alg}</div>}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          <a data-testid="hint-blddb-link" href={blddbCaseUrl} target="_blank" rel="noreferrer"
+            className="font-mono"
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 18, fontSize: 12, color: "#A1A1AA", textDecoration: "none" }}>
+            <ExternalLink size={13} /> Open this case on v2.blddb.net
+          </a>
+        </motion.div>
       </div>
     </>,
     document.body
