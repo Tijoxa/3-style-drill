@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
-  orientMaps, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay, ltctCaseKind,
+  orientMaps, orientAlg, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay, ltctCaseKind,
   codeCharToFacelet, caseKeyToPositions,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
@@ -151,7 +151,7 @@ export default function App() {
           : keys[Math.floor(getRandom() * keys.length)];
         const alg = recMap[kkey];
         if (!alg) continue;
-        const target = applyAlg(cur, alg);
+        const target = applyAlg(cur, orientAlg(alg, s.orientation));
         if (target !== cur) {
           targetRef.current = target;
           currentCaseKeyRef.current = `${s.scheme}:${m}:${kkey}`;
