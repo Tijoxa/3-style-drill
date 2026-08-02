@@ -66,5 +66,13 @@ Build an app to drill 3x3 Rubik's cube 3-style (blind method) commutators with a
 - Env adaptations for Emergent preview: `vite.config.js` server set `host:0.0.0.0, port:3000, strictPort:true, allowedHosts:true, open:false`. Supervisor `frontend` command changed `yarn start` → `/root/.bun/bin/bun run dev` (yarn 1.22 refuses the `packageManager: bun` field), PATH includes `/root/.bun/bin`. Backend supervisor program stopped (no server.py). Verified: preview loads, 0 console errors.
 
 ## Debug hooks (dev/testing)
+
+## LTCT & T2C refinements [2026-06]
+- **Bracket notation display**: `caseCodeToDisplay(key,'ltct',maps)` now renders LTCT/T2C labels as `AB[C]` (two plain letters + twisted piece in brackets), e.g. `CB[S]` (LTCT: buffer C + twisted last target) and `AU[J]` (T2C: two targets + twisted buffer). Verified samples CG[I], DK[M], etc.
+- **LTCT vs T2C classification** (`ltctCaseKind(key)` in cube.mjs): the blddb `ltctNightmare` set (378 cases) splits into **252 LTCT** (first code char is a UFR-buffer sticker → normal C-buffer cycle) and **126 T2C** (buffer is the twisted piece). All LTCT are inherently C-buffer (user's "only C cases" requirement satisfied by data).
+- **Config section**: SubsetModal MORE view now includes "LTCT & T2C" (`subset-view-ltct`) showing a `ltct-selectors` section with `[LTCT] [T2C]` toggles (`ltct-mode-ltct`/`ltct-mode-t2c`). `settings.ltctModes` (default `['ltct','t2c']`) filters the drill pool in buildCase; empty selection → pair `--`.
+- **Single-face highlight**: LTCT/T2C cube-net highlight reduced from all changed stickers to ONE sticker per involved corner (the U/D-face sticker via `CORNER_FACELET_GROUPS[g][0]`) → 3 stickers glow instead of 9. Verified by testing_agent iteration_7 (100%, frontend).
+
+## Debug hooks (dev/testing) — orig
 window.__trainer: solveCurrent, getSuccess, getState, getTarget, feedFacelets, markSolved, openMacPrompt.
 window.__cube: SOLVED, applyMove, applyAlg, scramble.
