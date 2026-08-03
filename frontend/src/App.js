@@ -1065,9 +1065,42 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 14 }}>
             <SubsetViewSwitch view={view} setView={setView} />
             {!isPieceView && (
-              <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
-                buffer <b style={{ color: "#fff" }}>{buffer.toUpperCase()}</b> · <b style={{ color: "var(--success)" }}>{active}</b>/{total} pairs active
-              </span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>
+                  buffer
+                </span>
+                <select
+                  data-testid={type === "corner" ? "corner-buffer-select" : "edge-buffer-select"}
+                  value={type === "corner" ? settings.cornerBuffer : settings.edgeBuffer}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setSettings((s) => ({
+                      ...s,
+                      [type === "corner" ? "cornerBuffer" : "edgeBuffer"]: val,
+                    }));
+                  }}
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    border: "1px solid var(--line)",
+                    background: "var(--surface-2)",
+                    color: "#fff",
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                  }}
+                >
+                  {bufferOptions(settings.scheme, type).map((l) => (
+                    <option key={l} value={l}>
+                      {l.toUpperCase()}
+                    </option>
+                  ))}
+                </select>
+                <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
+                  · <b style={{ color: "var(--success)" }}>{active}</b>/{total} pairs active
+                </span>
+              </div>
             )}
           </div>
 
@@ -1625,16 +1658,6 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
         <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
           How you hold the cube while lettering. Default: white top, green front.
         </span>
-      </Field>
-      <Field label="Corner buffer">
-        <select data-testid="corner-buffer-select" value={settings.cornerBuffer} onChange={(e) => set("cornerBuffer", e.target.value)} style={selectStyle}>
-          {bufferOptions(settings.scheme, "corner").map((l) => <option key={l} value={l}>{l}</option>)}
-        </select>
-      </Field>
-      <Field label="Edge buffer">
-        <select data-testid="edge-buffer-select" value={settings.edgeBuffer} onChange={(e) => set("edgeBuffer", e.target.value)} style={selectStyle}>
-          {bufferOptions(settings.scheme, "edge").map((l) => <option key={l} value={l}>{l.toUpperCase()}</option>)}
-        </select>
       </Field>
       <Toggle label="Sound feedback" testid="sound-toggle" value={settings.sound} onChange={(v) => set("sound", v)} />
       <Toggle label="Manual move buttons" testid="manual-toggle" value={settings.showManual} onChange={(v) => set("showManual", v)} />
