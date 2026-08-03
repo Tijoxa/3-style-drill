@@ -10,7 +10,7 @@ import {
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
   orientMaps, orientAlg, orientPerm, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay, ltctCaseKind,
-  codeCharToFacelet, caseKeyToPositions,
+  codeCharToFacelet, caseKeyToPositions, getCaseCellKey,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
 import { fetchHints, fetchCaseHints, STYLE_OPTIONS, CATEGORY_STYLE_OPTIONS, loadCategoryCases } from "./lib/blddb";
@@ -163,10 +163,30 @@ export default function App() {
       const clearCase = () => { targetRef.current = null; caseStartRef.current = null; caseStartedRef.current = false; caseStoppedRef.current = null; setPair(null); setHighlights({}); };
       if (!recMap) { clearCase(); return; }
       let keys = Object.keys(recMap);
+      const disabled = s.disabledCases || {};
       if (m === "flips") keys = keys.filter((k) => (s.flipCounts || [2]).includes(k.length));
       else if (m === "twists") keys = keys.filter((k) => (s.twistCounts || [2]).includes(k.length));
-      else if (m === "ltct") keys = keys.filter((k) => ltctCaseKind(k) === "ltct");
-      else if (m === "t2c") keys = keys.filter((k) => ltctCaseKind(k) === "t2c");
+      else if (m === "ltct") {
+        keys = keys.filter((k) => {
+          if (ltctCaseKind(k) !== "ltct") return false;
+          const cellKey = getCaseCellKey(k, "ltct", catMaps);
+          if (!cellKey) return false;
+          return !disabled[`${s.scheme}:ltct:${cellKey}`];
+        });
+      } else if (m === "t2c") {
+        keys = keys.filter((k) => {
+          if (ltctCaseKind(k) !== "t2c") return false;
+          const cellKey = getCaseCellKey(k, "t2c", catMaps);
+          if (!cellKey) return false;
+          return !disabled[`${s.scheme}:t2c:${cellKey}`];
+        });
+      } else if (m === "parity") {
+        keys = keys.filter((k) => {
+          const cellKey = getCaseCellKey(k, "parity", catMaps);
+          if (!cellKey) return false;
+          return !disabled[`${s.scheme}:parity:${cellKey}`];
+        });
+      }
       if (!keys.length) { clearCase(); return; }
       const cur = cubeStateRef.current;
       const spaced = s.distribution === "spaced";
@@ -589,9 +609,6 @@ export default function App() {
             ...(isMobile ? { order: 3, flexBasis: "100%", justifyContent: "center" } : {})
           }}
         >
-          <span className="overline font-head" style={{ fontSize: 10, color: "#7a7a7a", marginRight: 4, letterSpacing: "0.1em", display: isMobile ? "none" : "inline-block" }}>
-            TRAIN ON:
-          </span>
           {ALL_CATEGORIES.map((c) => {
             const checked = selectedModes.includes(c);
             return (
@@ -673,7 +690,13 @@ export default function App() {
             transition={{ duration: 0.08 }}
             style={{ fontSize: "clamp(5rem, 15vw, 18rem)", lineHeight: 1, fontWeight: 800, letterSpacing: "-0.04em", color: flashColor }}
           >
-            {pairText}
+            {pair?.type === "parity" && typeof pairText === "string" && pairText.includes("\u2002") ? (
+              <>
+                <span>{pairText.split("\u2002")[0]}</span>
+                <span style={{ display: "inline-block", width: "0.25em" }} />
+                <span>{pairText.split("\u2002")[1]}</span>
+              </>
+            ) : pairText}
           </motion.div>
         </AnimatePresence>
 
@@ -945,32 +968,57 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   const isMobile = useIsMobile();
   const scheme = settings.scheme;
   const maps = getMaps(scheme, settings.orientation);
-  const [view, setView] = useState(initialView); // corner | edge | flips | twists (synced with active drill mode on open)
-  const type = view === "edge" ? "edge" : "corner";
-  const isPieceView = view === "flips" || view === "twists" || view === "parity" || view === "ltct" || view === "t2c";
-  const buffer = type === "corner" ? settings.cornerBuffer : settings.edgeBuffer;
-  const letters = useMemo(
-    () => Object.keys(type === "corner" ? maps.corner : maps.edge).sort(),
-    [type, maps]
-  );
-  const bufPiece = letterPieceId(buffer, type, maps);
-  const pieceOf = useCallback((l) => letterPieceId(l, type, maps), [type, maps]);
-  const prefix = `${scheme}:${type}:`;
+  const [view, setView] = useState(initialView); // corner | edge | flips | twists | ltct | t2c | parity
 
-  // local working set of disabled "t1:t2" keys for the current scheme+type
+  const [catCasesMap, setCatCasesMap] = useState(null);
+  useEffect(() => {
+    if (view === "ltct" || view === "t2c" || view === "parity") {
+      const cat = view;
+      loadCategoryCases(cat).then((map) => {
+        setCatCasesMap(map || {});
+      });
+    }
+  }, [view]);
+
+  const isPieceView = view === "flips" || view === "twists";
+  const isParity = view === "parity";
+  const isLtct = view === "ltct";
+  const isT2c = view === "t2c";
+  const isExtraGrid = isParity || isLtct || isT2c;
+  const isStandardGrid = view === "corner" || view === "edge";
+
+  const type = view === "edge" ? "edge" : "corner";
+  const buffer = type === "corner" ? settings.cornerBuffer : settings.edgeBuffer;
+
+  const edgeLetters = useMemo(() => Object.keys(maps.edge).sort(), [maps]);
+  const cornerLetters = useMemo(() => Object.keys(maps.corner).sort(), [maps]);
+
+  const rowLetters = useMemo(() => {
+    if (isParity) return edgeLetters; // Rows are 1st letter (Edge)
+    if (view === "edge") return edgeLetters;
+    return cornerLetters;
+  }, [isParity, view, edgeLetters, cornerLetters]);
+
+  const colLetters = useMemo(() => {
+    if (isParity) return cornerLetters; // Cols are 3rd letter (Corner)
+    if (view === "edge") return edgeLetters;
+    return cornerLetters;
+  }, [isParity, view, edgeLetters, cornerLetters]);
+
+  const prefix = `${scheme}:${view}:`;
+
   const seed = useCallback(() => {
     const w = {};
     Object.keys(settings.disabledCases || {}).forEach((k) => {
       if (k.startsWith(prefix)) w[k.slice(prefix.length)] = true;
     });
     return w;
-    // eslint-disable-next-line
   }, [prefix]);
+
   const [work, setWork] = useState(seed);
   const workRef = useRef(work);
   useEffect(() => { workRef.current = work; }, [work]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setWork(seed()); }, [type, scheme]);
+  useEffect(() => { setWork(seed()); }, [prefix]);
 
   const commit = useCallback((w) => {
     setSettings((s) => {
@@ -981,42 +1029,91 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     });
   }, [prefix, setSettings]);
 
-  const idxOf = useMemo(() => { const m = {}; letters.forEach((l, i) => { m[l] = i; }); return m; }, [letters]);
-  const [drag, setDrag] = useState(null); // { mode, r0, c0, r1, c1 }
+  const cellData = useMemo(() => {
+    if (!isExtraGrid || !catCasesMap) return null;
+    const cat = view;
+    const validCells = new Set();
+    const casesPerCell = {};
+
+    Object.keys(catCasesMap).forEach((k) => {
+      if (cat === "ltct" && ltctCaseKind(k) !== "ltct") return;
+      if (cat === "t2c" && ltctCaseKind(k) !== "t2c") return;
+      const cellKey = getCaseCellKey(k, cat, maps);
+      if (!cellKey) return;
+      validCells.add(cellKey);
+      casesPerCell[cellKey] = (casesPerCell[cellKey] || 0) + 1;
+    });
+    return { validCells, casesPerCell };
+  }, [isExtraGrid, catCasesMap, view, maps]);
+
+  const bufPiece = isStandardGrid ? letterPieceId(buffer, type, maps) : null;
+  const pieceOf = useCallback((l, t = type) => letterPieceId(l, t, maps), [type, maps]);
+
+  const isImpossible = useCallback((rItem, cItem) => {
+    if (isStandardGrid) {
+      return rItem === cItem || pieceOf(rItem) === pieceOf(cItem);
+    }
+    if (isLtct || isT2c) {
+      if (rItem === cItem || pieceOf(rItem, "corner") === pieceOf(cItem, "corner")) return true;
+      const cellKey = `${rItem}:${cItem}`;
+      return !(cellData && cellData.validCells && cellData.validCells.has(cellKey));
+    }
+    if (isParity) {
+      const cellKey = `${rItem.toUpperCase()}:${cItem.toUpperCase()}`;
+      return !(cellData && cellData.validCells && cellData.validCells.has(cellKey));
+    }
+    return false;
+  }, [isStandardGrid, isLtct, isT2c, isParity, pieceOf, cellData]);
+
+  const isBufferExcluded = useCallback((rItem, cItem) => {
+    if (!isStandardGrid) return false;
+    return pieceOf(rItem) === bufPiece || pieceOf(cItem) === bufPiece;
+  }, [isStandardGrid, pieceOf, bufPiece]);
+
+  const isHidden = useCallback((rItem, cItem, rIdx, cIdx) => {
+    if (isExtraGrid) return false; // Full 24x24 square grid for Parity, LTCT, and T2C
+    return rIdx <= cIdx; // Bottom-left triangle only for standard corner/edge
+  }, [isExtraGrid]);
+
+  const cellKeyFor = useCallback((rItem, cItem) => {
+    if (isParity) return `${rItem.toUpperCase()}:${cItem.toUpperCase()}`;
+    if (isLtct || isT2c) return `${rItem}:${cItem}`;
+    return `${rItem}:${cItem}`;
+  }, [isParity, isLtct, isT2c]);
+
+  const [drag, setDrag] = useState(null);
   const dragRef = useRef(null);
   useEffect(() => { dragRef.current = drag; }, [drag]);
 
-  const isImpossible = useCallback((t1, t2) => t1 === t2 || pieceOf(t1) === pieceOf(t2), [pieceOf]);
-  const isBufferExcluded = useCallback((t1, t2) => pieceOf(t1) === bufPiece || pieceOf(t2) === bufPiece, [pieceOf, bufPiece]);
-  // Only the bottom-left triangle is shown/interactive: a pair {A,B} is learnt as one unit
-  // (both commutators AB and BA), so the mirror cell in the upper triangle is hidden.
-  const isHidden = useCallback((t1, t2) => idxOf[t1] <= idxOf[t2], [idxOf]);
-
-  const inDragRect = useCallback((t1, t2) => {
+  const inDragRect = useCallback((rItem, cItem) => {
     const d = dragRef.current; if (!d) return false;
-    const r = idxOf[t1], c = idxOf[t2];
+    const r = rowLetters.indexOf(rItem);
+    const c = colLetters.indexOf(cItem);
     return r >= Math.min(d.r0, d.r1) && r <= Math.max(d.r0, d.r1) && c >= Math.min(d.c0, d.c1) && c <= Math.max(d.c0, d.c1);
-  }, [idxOf]);
+  }, [rowLetters, colLetters]);
 
-  const effDisabled = useCallback((t1, t2) => {
+  const effDisabled = useCallback((rItem, cItem) => {
     const d = dragRef.current;
-    if (d && inDragRect(t1, t2) && !isImpossible(t1, t2)) return d.mode === "disable";
-    return !!work[`${t1}:${t2}`];
-  }, [inDragRect, work, isImpossible]);
+    if (d && inDragRect(rItem, cItem) && !isImpossible(rItem, cItem)) return d.mode === "disable";
+    return !!work[cellKeyFor(rItem, cItem)];
+  }, [inDragRect, work, isImpossible, cellKeyFor]);
 
-  const startDrag = useCallback((t1, t2) => {
-    if (isImpossible(t1, t2)) return;
-    const mode = workRef.current[`${t1}:${t2}`] ? "enable" : "disable";
-    setDrag({ mode, r0: idxOf[t1], c0: idxOf[t2], r1: idxOf[t1], c1: idxOf[t2] });
-  }, [idxOf, isImpossible]);
+  const startDrag = useCallback((rItem, cItem) => {
+    if (isImpossible(rItem, cItem)) return;
+    const ck = cellKeyFor(rItem, cItem);
+    const mode = workRef.current[ck] ? "enable" : "disable";
+    const rIdx = rowLetters.indexOf(rItem);
+    const cIdx = colLetters.indexOf(cItem);
+    setDrag({ mode, r0: rIdx, c0: cIdx, r1: rIdx, c1: cIdx });
+  }, [rowLetters, colLetters, isImpossible, cellKeyFor]);
 
-  const extendDrag = useCallback((t1, t2) => {
-    const r = idxOf[t1], c = idxOf[t2];
-    if (r == null || c == null) return;
+  const extendDrag = useCallback((rItem, cItem) => {
+    const r = rowLetters.indexOf(rItem);
+    const c = colLetters.indexOf(cItem);
+    if (r === -1 || c === -1) return;
     setDrag((d) => (d && (d.r1 !== r || d.c1 !== c) ? { ...d, r1: r, c1: c } : d));
-  }, [idxOf]);
+  }, [rowLetters, colLetters]);
 
-  // Commit the rectangle to the working set on pointer release.
   useEffect(() => {
     const finish = () => {
       const d = dragRef.current; if (!d) return;
@@ -1024,12 +1121,20 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
         const n = { ...w };
         const rlo = Math.min(d.r0, d.r1), rhi = Math.max(d.r0, d.r1);
         const clo = Math.min(d.c0, d.c1), chi = Math.max(d.c0, d.c1);
-        for (let r = rlo; r <= rhi; r++) for (let c = clo; c <= chi; c++) {
-          if (r <= c) continue; // bottom-left triangle only
-          const t1 = letters[r], t2 = letters[c];
-          if (isImpossible(t1, t2)) continue;
-          const k1 = `${t1}:${t2}`, k2 = `${t2}:${t1}`; // mirror both directions of the pair
-          if (d.mode === "disable") { n[k1] = true; n[k2] = true; } else { delete n[k1]; delete n[k2]; }
+        for (let r = rlo; r <= rhi; r++) {
+          for (let c = clo; c <= chi; c++) {
+            const rItem = rowLetters[r], cItem = colLetters[c];
+            if (isHidden(rItem, cItem, r, c)) continue;
+            if (isImpossible(rItem, cItem)) continue;
+            const ck = cellKeyFor(rItem, cItem);
+            if (d.mode === "disable") {
+              n[ck] = true;
+              if (isStandardGrid) n[`${cItem}:${rItem}`] = true;
+            } else {
+              delete n[ck];
+              if (isStandardGrid) delete n[`${cItem}:${rItem}`];
+            }
+          }
         }
         commit(n);
         return n;
@@ -1038,16 +1143,18 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     };
     window.addEventListener("pointerup", finish);
     window.addEventListener("pointercancel", finish);
-    return () => { window.removeEventListener("pointerup", finish); window.removeEventListener("pointercancel", finish); };
-  }, [commit, letters, isImpossible]);
+    return () => {
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    };
+  }, [commit, rowLetters, colLetters, isHidden, isImpossible, cellKeyFor, isStandardGrid]);
 
-  // Touch/mouse: pointer capture blocks pointerenter on other cells, so track via elementFromPoint.
   useEffect(() => {
     const move = (e) => {
       if (!dragRef.current) return;
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const cellEl = el && el.closest ? el.closest("[data-subcell]") : null;
-      if (cellEl && cellEl.dataset.t1) extendDrag(cellEl.dataset.t1, cellEl.dataset.t2);
+      if (cellEl && cellEl.dataset.t1 && cellEl.dataset.t2) extendDrag(cellEl.dataset.t1, cellEl.dataset.t2);
     };
     window.addEventListener("pointermove", move);
     return () => window.removeEventListener("pointermove", move);
@@ -1062,19 +1169,28 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   const setBulk = (mode, filter) => {
     setWork((w) => {
       const n = { ...w };
-      for (const t1 of letters) for (const t2 of letters) {
-        if (isHidden(t1, t2)) continue; // bottom-left triangle only
-        if (isImpossible(t1, t2)) continue;
-        if (filter && !filter(t1, t2)) continue;
-        const k1 = `${t1}:${t2}`, k2 = `${t2}:${t1}`; // mirror both directions of the pair
-        if (mode === "disable") { n[k1] = true; n[k2] = true; } else { delete n[k1]; delete n[k2]; }
+      for (let r = 0; r < rowLetters.length; r++) {
+        const rItem = rowLetters[r];
+        for (let c = 0; c < colLetters.length; c++) {
+          const cItem = colLetters[c];
+          if (isHidden(rItem, cItem, r, c)) continue;
+          if (isImpossible(rItem, cItem)) continue;
+          if (filter && !filter(rItem, cItem)) continue;
+          const ck = cellKeyFor(rItem, cItem);
+          if (mode === "disable") {
+            n[ck] = true;
+            if (isStandardGrid) n[`${cItem}:${rItem}`] = true;
+          } else {
+            delete n[ck];
+            if (isStandardGrid) delete n[`${cItem}:${rItem}`];
+          }
+        }
       }
       return n;
     });
   };
   const commitBulk = (mode, filter) => { setBulk(mode, filter); setTimeout(() => commit(workRef.current), 0); };
 
-  // Toggle a piece-count for the Flips / Twists modes (keep at least one selected).
   const toggleCount = (field) => (n) => setSettings((s) => {
     const cur = s[field] || [];
     let next = cur.includes(n) ? cur.filter((x) => x !== n) : [...cur, n];
@@ -1082,33 +1198,74 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     return { ...s, [field]: next.sort((a, b) => a - b) };
   });
 
-  // Toggle an LTCT / T2C sub-category (neither is allowed → empty pool shows "--").
-  const toggleLtctMode = (v) => setSettings((s) => {
-    const cur = s.ltctModes || ["ltct", "t2c"];
-    const next = cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v];
-    return { ...s, ltctModes: next };
-  });
+  const allDisabledForLetter = useCallback((L) => {
+    return rowLetters.every((x) => {
+      if (x === L || isImpossible(L, x) || isBufferExcluded(L, x)) return true;
+      const ck = cellKeyFor(L, x);
+      return !!work[ck];
+    });
+  }, [rowLetters, isImpossible, isBufferExcluded, cellKeyFor, work]);
 
-  // A pair contains letter L; is every drillable pair involving L already disabled?
-  const allDisabledForLetter = useCallback((L) => letters.every((x) => {
-    if (x === L || isImpossible(L, x) || isBufferExcluded(L, x)) return true;
-    const key = idxOf[L] > idxOf[x] ? `${L}:${x}` : `${x}:${L}`;
-    return !!work[key];
-  }), [letters, isImpossible, isBufferExcluded, idxOf, work]);
+  const allDisabledForRow = useCallback((rItem) => {
+    const rIdx = rowLetters.indexOf(rItem);
+    return colLetters.every((cItem, cIdx) => {
+      if (isHidden(rItem, cItem, rIdx, cIdx) || isImpossible(rItem, cItem) || isBufferExcluded(rItem, cItem)) return true;
+      return !!work[cellKeyFor(rItem, cItem)];
+    });
+  }, [rowLetters, colLetters, isHidden, isImpossible, isBufferExcluded, work, cellKeyFor]);
 
-  const stateOf = (t1, t2) => {
-    if (isImpossible(t1, t2)) return "impossible";
-    const disabled = effDisabled(t1, t2);
-    if (isBufferExcluded(t1, t2)) return disabled ? "bufferDisabled" : "bufferEnabled";
+  const allDisabledForCol = useCallback((cItem) => {
+    const cIdx = colLetters.indexOf(cItem);
+    return rowLetters.every((rItem, rIdx) => {
+      if (isHidden(rItem, cItem, rIdx, cIdx) || isImpossible(rItem, cItem) || isBufferExcluded(rItem, cItem)) return true;
+      return !!work[cellKeyFor(rItem, cItem)];
+    });
+  }, [rowLetters, colLetters, isHidden, isImpossible, isBufferExcluded, work, cellKeyFor]);
+
+  const handleRowClick = (rItem) => {
+    const filter = isStandardGrid
+      ? (r, c) => r === rItem || c === rItem
+      : (r, c) => r === rItem;
+    const allDis = isStandardGrid
+      ? allDisabledForLetter(rItem)
+      : allDisabledForRow(rItem);
+    commitBulk(allDis ? "enable" : "disable", filter);
+  };
+
+  const handleColClick = (cItem) => {
+    const filter = isStandardGrid
+      ? (r, c) => r === cItem || c === cItem
+      : (r, c) => c === cItem;
+    const allDis = isStandardGrid
+      ? allDisabledForLetter(cItem)
+      : allDisabledForCol(cItem);
+    commitBulk(allDis ? "enable" : "disable", filter);
+  };
+
+  const stateOf = (rItem, cItem) => {
+    if (isImpossible(rItem, cItem)) return "impossible";
+    const disabled = effDisabled(rItem, cItem);
+    if (isStandardGrid && isBufferExcluded(rItem, cItem)) {
+      return disabled ? "bufferDisabled" : "bufferEnabled";
+    }
     return disabled ? "disabled" : "enabled";
   };
 
-  // count active (enabled, drillable) pairs — bottom-left triangle only
-  let active = 0, total = 0;
-  for (const t1 of letters) for (const t2 of letters) {
-    if (isHidden(t1, t2) || isImpossible(t1, t2) || isBufferExcluded(t1, t2)) continue;
-    total += 1;
-    if (!effDisabled(t1, t2)) active += 1;
+  let activeCells = 0, totalCells = 0, activeAlgs = 0, totalAlgs = 0;
+  for (let r = 0; r < rowLetters.length; r++) {
+    const rItem = rowLetters[r];
+    for (let c = 0; c < colLetters.length; c++) {
+      const cItem = colLetters[c];
+      if (isHidden(rItem, cItem, r, c) || isImpossible(rItem, cItem) || isBufferExcluded(rItem, cItem)) continue;
+      totalCells += 1;
+      const ck = cellKeyFor(rItem, cItem);
+      const cCount = cellData ? (cellData.casesPerCell[ck] || 1) : (isStandardGrid ? 2 : 1);
+      totalAlgs += cCount;
+      if (!effDisabled(rItem, cItem)) {
+        activeCells += 1;
+        activeAlgs += cCount;
+      }
+    }
   }
 
   const gap = isMobile ? 1 : 2;
@@ -1125,12 +1282,16 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     display: "block", overflowY: "auto", overflowX: "hidden", boxSizing: "border-box",
   };
 
-  const legend = [
+  const legend = isStandardGrid ? [
     ["enabled", "Enabled"],
     ["disabled", "Disabled"],
     ["impossible", "Impossible"],
     ["bufferEnabled", "Enabled (buffer-excluded)"],
     ["bufferDisabled", "Disabled (buffer-excluded)"],
+  ] : [
+    ["enabled", "Enabled"],
+    ["disabled", "Disabled"],
+    ["impossible", "Impossible (no alg)"],
   ];
 
   return createPortal(
@@ -1157,39 +1318,43 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
             <SubsetViewSwitch view={view} setView={setView} />
             {!isPieceView && (
               <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>
-                  buffer
-                </span>
-                <select
-                  data-testid={type === "corner" ? "corner-buffer-select" : "edge-buffer-select"}
-                  value={type === "corner" ? settings.cornerBuffer : settings.edgeBuffer}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setSettings((s) => ({
-                      ...s,
-                      [type === "corner" ? "cornerBuffer" : "edgeBuffer"]: val,
-                    }));
-                  }}
-                  style={{
-                    padding: "3px 8px",
-                    borderRadius: 6,
-                    border: "1px solid var(--line)",
-                    background: "var(--surface-2)",
-                    color: "#fff",
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                  }}
-                >
-                  {bufferOptions(settings.scheme, type).map((l) => (
-                    <option key={l} value={l}>
-                      {l.toUpperCase()}
-                    </option>
-                  ))}
-                </select>
+                {isStandardGrid && (
+                  <>
+                    <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>
+                      buffer
+                    </span>
+                    <select
+                      data-testid={type === "corner" ? "corner-buffer-select" : "edge-buffer-select"}
+                      value={type === "corner" ? settings.cornerBuffer : settings.edgeBuffer}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setSettings((s) => ({
+                          ...s,
+                          [type === "corner" ? "cornerBuffer" : "edgeBuffer"]: val,
+                        }));
+                      }}
+                      style={{
+                        padding: "3px 8px",
+                        borderRadius: 6,
+                        border: "1px solid var(--line)",
+                        background: "var(--surface-2)",
+                        color: "#fff",
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {bufferOptions(settings.scheme, type).map((l) => (
+                        <option key={l} value={l}>
+                          {l.toUpperCase()}
+                        </option>
+                      ))}
+                    </select>
+                  </>
+                )}
                 <span className="font-mono" data-testid="subset-active-count" style={{ fontSize: 12, color: "#A1A1AA" }}>
-                  · <b style={{ color: "var(--success)" }}>{active}</b>/{total} pairs active
+                  · <b style={{ color: "var(--success)" }}>{activeCells}</b>/{totalCells} {isStandardGrid ? "pairs active" : `cells active (${activeAlgs}/${totalAlgs} algs)`}
                 </span>
               </div>
             )}
@@ -1211,33 +1376,6 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
               </p>
             </div>
           )}
-          {view === "ltct" && (
-            <div data-testid="ltct-placeholder" style={{ marginTop: 18, padding: "24px 16px", border: "1px dashed var(--line)", borderRadius: 10, background: "var(--surface-2)", textAlign: "center" }}>
-              <span className="overline font-head" style={{ fontSize: 11, color: "var(--active)", display: "block", marginBottom: 6, letterSpacing: "0.1em" }}>subset placeholder</span>
-              <h3 className="font-head" style={{ fontSize: 16, color: "#fff", margin: "0 0 6px 0", letterSpacing: "0.02em" }}>LTCT Subset Configuration</h3>
-              <p className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", margin: 0, lineHeight: 1.6 }}>
-                Placeholder for LTCT cases (C-buffer cycle with a twisted last target). Detailed subset configuration refineable soon.
-              </p>
-            </div>
-          )}
-          {view === "t2c" && (
-            <div data-testid="t2c-placeholder" style={{ marginTop: 18, padding: "24px 16px", border: "1px dashed var(--line)", borderRadius: 10, background: "var(--surface-2)", textAlign: "center" }}>
-              <span className="overline font-head" style={{ fontSize: 11, color: "var(--active)", display: "block", marginBottom: 6, letterSpacing: "0.1em" }}>subset placeholder</span>
-              <h3 className="font-head" style={{ fontSize: 16, color: "#fff", margin: "0 0 6px 0", letterSpacing: "0.02em" }}>T2C Subset Configuration</h3>
-              <p className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", margin: 0, lineHeight: 1.6 }}>
-                Placeholder for T2C cases (twisted buffer with two swapped corners). Detailed subset configuration refineable soon.
-              </p>
-            </div>
-          )}
-          {view === "parity" && (
-            <div data-testid="parity-placeholder" style={{ marginTop: 18, padding: "24px 16px", border: "1px dashed var(--line)", borderRadius: 10, background: "var(--surface-2)", textAlign: "center" }}>
-              <span className="overline font-head" style={{ fontSize: 11, color: "var(--active)", display: "block", marginBottom: 6, letterSpacing: "0.1em" }}>subset placeholder</span>
-              <h3 className="font-head" style={{ fontSize: 16, color: "#fff", margin: "0 0 6px 0", letterSpacing: "0.02em" }}>Parity Subset Configuration</h3>
-              <p className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", margin: 0, lineHeight: 1.6 }}>
-                Placeholder for Parity cases (swap 1 edge & 1 corner pair). Detailed subset configuration refineable soon.
-              </p>
-            </div>
-          )}
 
           {!isPieceView && (
             <>
@@ -1246,47 +1384,47 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
                 <div style={{ display: "inline-block", userSelect: "none" }}>
                   {/* column header */}
                   <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
-                    {letters.map((t2) => (
-                      <button key={t2} data-testid={`subset-col-${t2}`}
-                        onClick={() => commitBulk(allDisabledForLetter(t2) ? "enable" : "disable", (a, b) => a === t2 || b === t2)}
+                    {colLetters.map((cItem) => (
+                      <button key={cItem} data-testid={`subset-col-${cItem}`}
+                        onClick={() => handleColClick(cItem)}
                         className="font-mono"
                         style={{ width: cell, height: label, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-                        {t2.toUpperCase()}
+                        {cItem.toUpperCase()}
                       </button>
                     ))}
                   </div>
-                  {letters.map((t1) => (
-                    <div key={t1} style={{ display: "flex", gap, marginBottom: gap, alignItems: "center" }}>
-                      <button data-testid={`subset-row-${t1}`}
-                        onClick={() => commitBulk(allDisabledForLetter(t1) ? "enable" : "disable", (a, b) => a === t1 || b === t1)}
+                  {rowLetters.map((rItem) => (
+                    <div key={rItem} style={{ display: "flex", gap, marginBottom: gap, alignItems: "center" }}>
+                      <button data-testid={`subset-row-${rItem}`}
+                        onClick={() => handleRowClick(rItem)}
                         className="font-mono"
                         style={{ width: label, height: cell, marginRight: gap, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "right" }}>
-                        {t1.toUpperCase()}
+                        {rItem.toUpperCase()}
                       </button>
-                      {letters.map((t2) => {
-                        if (isHidden(t1, t2)) {
-                          // upper-right (mirror) cells are not drilled here — keep the layout square
-                          return <div key={t2} style={{ width: cell, height: cell, flex: "0 0 auto" }} />;
+                      {colLetters.map((cItem, cIdx) => {
+                        const rIdx = rowLetters.indexOf(rItem);
+                        if (isHidden(rItem, cItem, rIdx, cIdx)) {
+                          return <div key={cItem} style={{ width: cell, height: cell, flex: "0 0 auto" }} />;
                         }
-                        const st = stateOf(t1, t2);
+                        const st = stateOf(rItem, cItem);
                         const isBuf = st === "bufferEnabled" || st === "bufferDisabled";
                         const imp = st === "impossible";
                         return (
                           <div
-                            key={t2}
-                            data-testid={`subset-cell-${t1}-${t2}`}
+                            key={cItem}
+                            data-testid={`subset-cell-${rItem}-${cItem}`}
                             data-state={st}
                             data-subcell="1"
-                            data-t1={t1}
-                            data-t2={t2}
-                            onPointerDown={(e) => { if (!imp) { e.preventDefault(); startDrag(t1, t2); } }}
-                            onPointerEnter={() => { if (!imp) extendDrag(t1, t2); }}
-                            title={`${t1.toUpperCase()}${t2.toUpperCase()}`}
+                            data-t1={rItem}
+                            data-t2={cItem}
+                            onPointerDown={(e) => { if (!imp) { e.preventDefault(); startDrag(rItem, cItem); } }}
+                            onPointerEnter={() => { if (!imp) extendDrag(rItem, cItem); }}
+                            title={isParity ? `1st:${rItem.toUpperCase()} 3rd:${cItem.toUpperCase()}` : `${rItem.toUpperCase()}${cItem.toUpperCase()}`}
                             style={{
                               width: cell, height: cell, borderRadius: 3, flex: "0 0 auto",
                               background: SUBSET_COLORS[st],
                               backgroundImage: isBuf ? STRIPES : "none",
-                              opacity: isBuf ? 0.42 : 1,
+                              opacity: isBuf ? 0.42 : (imp ? 0.35 : 1),
                               border: imp ? "1px solid #2a2a2e" : "1px solid rgba(0,0,0,0.35)",
                               cursor: imp ? "not-allowed" : "pointer",
                             }}
@@ -1305,14 +1443,17 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
               </div>
 
               <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 12, lineHeight: 1.6 }}>
-                One cell = one pair {"{A,B}"} (both commutators AB and BA). Only the bottom-left triangle is shown since a pair is learnt as a single unit; enabling/disabling a cell applies to both directions. Click or drag to paint. Click a row/column label to toggle every pair containing that letter.
+                {isT2c && "One square = 2 algs (e.g. AD[M] and DA[M]). The letter in brackets (twisted buffer) is omitted from the axis. Holes are combinations with no algorithm."}
+                {isLtct && "The first letter (buffer C) is constant and omitted from the axis. Each square = cases for target pair {A,B}. Holes are combinations with no algorithm."}
+                {isParity && "Square grid: Rows = 1st letter (Edge), Columns = 3rd letter (Corner) of the 4-letter parity case. Holes are combinations with no algorithm."}
+                {isStandardGrid && "One cell = one pair {A,B} (both commutators AB and BA). Only the bottom-left triangle is shown since a pair is learnt as a single unit; enabling/disabling a cell applies to both directions. Click or drag to paint. Click a row/column label to toggle every pair containing that letter."}
               </p>
 
               {/* Legend (below grid) */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
                 {legend.map(([k, l]) => (
                   <div key={k} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 14, height: 14, borderRadius: 3, background: SUBSET_COLORS[k], opacity: k.startsWith("buffer") ? 0.4 : 1, backgroundImage: k.startsWith("buffer") ? STRIPES : "none", border: k === "impossible" ? "1px solid #2a2a2e" : "none", display: "inline-block", flex: "0 0 auto" }} />
+                    <span style={{ width: 14, height: 14, borderRadius: 3, background: SUBSET_COLORS[k], opacity: k.startsWith("buffer") ? 0.4 : (k === "impossible" ? 0.35 : 1), backgroundImage: k.startsWith("buffer") ? STRIPES : "none", border: k === "impossible" ? "1px solid #2a2a2e" : "none", display: "inline-block", flex: "0 0 auto" }} />
                     <span className="font-mono" style={{ fontSize: 11, color: "#A1A1AA" }}>{l}</span>
                   </div>
                 ))}
@@ -1823,7 +1964,7 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
                   const val = e.target.value === "" ? "" : Number(e.target.value);
                   set("seed", val);
                 }}
-                style={{ ...selectStyle, width: 110, boxSizing: "border-box" }}
+                style={{ ...inputStyle, width: 110, boxSizing: "border-box" }}
               />
               <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
                 Fixed seed for deterministic random case selection (default: 42).
@@ -1844,7 +1985,7 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
                   const v = Math.max(1, Math.min(120, Number(e.target.value) || 10));
                   set("srTimeoutMs", v * 1000);
                 }}
-                style={{ ...selectStyle, width: 90, boxSizing: "border-box" }}
+                style={{ ...inputStyle, width: 90, boxSizing: "border-box" }}
               />
               <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>seconds</span>
             </div>
@@ -1944,4 +2085,27 @@ const pillStyle = (color) => ({
 const iconBtn = { display: "grid", placeItems: "center", width: 38, height: 38, borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface)", color: "#fff", cursor: "pointer" };
 const ghostBtn = { display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, border: "1px solid var(--line)", background: "transparent", color: "#A1A1AA", cursor: "pointer", fontSize: 13, fontFamily: "'JetBrains Mono', monospace" };
 const moveBtn = { minWidth: 40, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--surface-2)", color: "#fff", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", fontSize: 14, fontWeight: 700 };
-const selectStyle = { padding: "10px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--surface-2)", color: "#fff", fontFamily: "'JetBrains Mono', monospace", fontSize: 14 };
+const inputStyle = {
+  padding: "10px 14px",
+  borderRadius: 8,
+  border: "1px solid var(--line)",
+  background: "var(--surface-2)",
+  color: "#fff",
+  fontFamily: "'JetBrains Mono', monospace",
+  fontSize: 14,
+  outline: "none",
+};
+
+const selectStyle = {
+  appearance: "none",
+  WebkitAppearance: "none",
+  MozAppearance: "none",
+  padding: "10px 36px 10px 14px",
+  borderRadius: 8,
+  border: "1px solid var(--line)",
+  background: `var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23A1A1AA' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") no-repeat right 14px center`,
+  color: "#fff",
+  fontFamily: "'JetBrains Mono', monospace",
+  fontSize: 14,
+  cursor: "pointer",
+};
