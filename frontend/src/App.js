@@ -701,10 +701,10 @@ export default function App() {
 
       {/* Center */}
       <main data-testid="trainer-main" onClick={handleScreenTap} style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, padding: 20, cursor: "pointer" }}>
-        <div className="overline" style={{ color: "#52525B", fontSize: 12 }}>
+        <div data-testid="case-subtitle" className="overline" style={{ color: "#52525B", fontSize: 12 }}>
           {pair?.type && NEW_CATEGORIES.includes(pair.type)
             ? `${CATEGORY_META[pair.type]?.short || pair.type.toUpperCase()} · ${(SCHEMES[settings.scheme] || SCHEMES.speffz).name}`
-            : `${(pair?.type || "corners") === "corners" ? "CORNER 3-STYLE" : "EDGE 3-STYLE"} · BUFFER ${((pair?.type || "corners") === "corners" ? settings.cornerBuffer : settings.edgeBuffer).toUpperCase()} · ${(SCHEMES[settings.scheme] || SCHEMES.speffz).name}`}
+            : `${pair?.type === "edge" ? "EDGE 3-STYLE" : "CORNER 3-STYLE"} · BUFFER ${(pair?.type === "edge" ? settings.edgeBuffer : settings.cornerBuffer).toUpperCase()} · ${(SCHEMES[settings.scheme] || SCHEMES.speffz).name}`}
         </div>
 
         <AnimatePresence mode="popLayout">
