@@ -1371,12 +1371,63 @@ function SourceInfo({ sources, testid }) {
 
 function SubsetViewSwitch({ view, setView }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useEffect(() => {
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+  const [pos, setPos] = useState(null);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+
+  const place = useCallback(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const GAP = 6;
+    const menuW = Math.max(170, r.width);
+    const menuH = 160;
+    let left = r.left;
+    if (left + menuW > window.innerWidth - 8) {
+      left = Math.max(8, window.innerWidth - 8 - menuW);
+    }
+    let top = r.bottom + GAP;
+    if (top + menuH > window.innerHeight - 8) {
+      top = Math.max(8, r.top - GAP - menuH);
+    }
+    setPos({ left, top, width: menuW });
   }, []);
+
+  const toggle = (e) => {
+    e.stopPropagation();
+    setOpen((v) => {
+      const nv = !v;
+      if (nv) place();
+      return nv;
+    });
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (btnRef.current && btnRef.current.contains(e.target)) return;
+      if (popRef.current && popRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        setOpen(false);
+      }
+    };
+    const onScroll = () => place();
+    document.addEventListener("mousedown", onDoc);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open, place]);
+
   const MORE = [
     ["flips", "Edge flips", "EDGE FLIPS"],
     ["twists", "Corner twists", "CORNER TWISTS"],
@@ -1387,6 +1438,7 @@ function SubsetViewSwitch({ view, setView }) {
   const moreActive = MORE.some((m) => m[0] === view);
   const activeItem = MORE.find((m) => m[0] === view);
   const moreLabel = moreActive && activeItem ? activeItem[2] : "MORE";
+
   return (
     <div data-testid="subset-view-switch" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface)", position: "relative" }}>
       {[["corner", "Corners"], ["edge", "Edges"]].map(([v, l], idx) => (
@@ -1398,8 +1450,8 @@ function SubsetViewSwitch({ view, setView }) {
             boxShadow: view === v ? "inset 0 0 0 1px var(--active)" : "none"
           }}>{l}</button>
       ))}
-      <div ref={ref} style={{ position: "relative", display: "flex" }}>
-        <button data-testid="subset-view-more-btn" onClick={() => setOpen((o) => !o)} className="overline font-head"
+      <div style={{ position: "relative", display: "flex" }}>
+        <button ref={btnRef} data-testid="subset-view-more-btn" onClick={toggle} className="overline font-head"
           style={{
             padding: "8px 14px", display: "flex", alignItems: "center", gap: 6, fontSize: 12, letterSpacing: "0.12em", cursor: "pointer", whiteSpace: "nowrap", border: "none",
             background: moreActive ? "var(--surface-2)" : "transparent", color: moreActive ? "#fff" : "#7a7a7a",
@@ -1407,8 +1459,27 @@ function SubsetViewSwitch({ view, setView }) {
           }}>
           {moreLabel} <ChevronDown size={13} />
         </button>
-        {open && (
-          <div data-testid="subset-view-more-menu" style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 20, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 6, minWidth: 170, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
+        {open && pos && createPortal(
+          <div
+            ref={popRef}
+            data-testid="subset-view-more-menu"
+            className="theme-scroll"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "fixed",
+              left: pos.left,
+              top: pos.top,
+              zIndex: 120,
+              background: "var(--surface-2)",
+              border: "1px solid var(--line)",
+              borderRadius: 10,
+              padding: 6,
+              minWidth: pos.width || 170,
+              maxHeight: 160,
+              overflowY: "auto",
+              boxShadow: "0 8px 24px rgba(0,0,0,0.55)"
+            }}
+          >
             {MORE.map(([v, l]) => (
               <button key={v} data-testid={`subset-view-${v}`} onClick={() => { setView(v); setOpen(false); }} className="font-mono"
                 style={{
@@ -1418,7 +1489,8 @@ function SubsetViewSwitch({ view, setView }) {
                 {l}
               </button>
             ))}
-          </div>
+          </div>,
+          document.body
         )}
       </div>
     </div>
