@@ -1467,13 +1467,6 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
                 <button data-testid="subset-disable-all" onClick={() => commitBulk("disable")} style={{ ...ghostBtn, fontSize: 12, flex: "1 1 120px", justifyContent: "center" }}>Disable all</button>
               </div>
 
-              <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 12, lineHeight: 1.6 }}>
-                {isT2c && "One square = 2 algs (e.g. AD[M] and DA[M]). The letter in brackets (twisted buffer) is omitted from the axis. Holes are combinations with no algorithm."}
-                {isLtct && "The first letter (buffer C) is constant and omitted from the axis. Each square = cases for target pair {A,B}. Holes are combinations with no algorithm."}
-                {isParity && "Square grid: Rows = 1st letter (Edge), Columns = 3rd letter (Corner) of the 4-letter parity case. Holes are combinations with no algorithm."}
-                {isStandardGrid && "One cell = one pair {A,B} (both commutators AB and BA). Only the bottom-left triangle is shown since a pair is learnt as a single unit; enabling/disabling a cell applies to both directions. Click or drag to paint. Click a row/column label to toggle every pair containing that letter."}
-              </p>
-
               {/* Legend (below grid) */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginTop: 12 }}>
                 {legend.map(([k, l]) => (
@@ -1483,6 +1476,13 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
                   </div>
                 ))}
               </div>
+
+              <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 12, lineHeight: 1.6 }}>
+                {isT2c && "One square = 2 algs (e.g. AD[M] and DA[M]). The letter in brackets (twisted buffer) is omitted from the axis. Holes are combinations with no algorithm."}
+                {isLtct && "The first letter (buffer C) is constant and omitted from the axis. Each square = cases for target pair {A,B}. Holes are combinations with no algorithm."}
+                {isParity && "Square grid: Rows = 1st letter (Edge), Columns = 3rd letter (Corner) of the 4-letter parity case. Holes are combinations with no algorithm."}
+                {isStandardGrid && "One cell = one pair {A,B} (both commutators AB and BA). Only the bottom-left triangle is shown since a pair is learnt as a single unit; enabling/disabling a cell applies to both directions. Click or drag to paint. Click a row/column label to toggle every pair containing that letter."}
+              </p>
             </>
           )}
         </motion.div>
