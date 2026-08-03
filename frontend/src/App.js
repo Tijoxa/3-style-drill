@@ -66,6 +66,7 @@ function beep(freq, ok) {
 
 const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], orientation: { top: "white", front: "green" }, distribution: "uniform", useSeed: false, seed: 42, srTimeoutMs: 10000, disabledCases: {} };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
+const ALLOWED_MOVE_KEYS = new Set(["r", "f", "u", "d", "l", "b", "shift"]);
 
 export default function App() {
   const [selectedModes, setSelectedModes] = useState(() => loadJSON(SELECTED_MODES_KEY, ["corners"]));
@@ -111,6 +112,7 @@ export default function App() {
   const [catState, setCatState] = useState({ loading: false, error: null });
   const isTimerPausedRef = useRef(isTimerPaused);
   const prngRef = useRef(null);
+  const pressedKeysRef = useRef(new Set());
 
   const toggleMode = useCallback((cat) => {
     setSelectedModes((prev) => {
@@ -482,31 +484,54 @@ export default function App() {
 
   // keyboard controls
   useEffect(() => {
-    const handler = (e) => {
+    const handleKeyDown = (e) => {
+      const k = e.key.toLowerCase();
+      pressedKeysRef.current.add(k);
+
       if (drawer || subsetOpen || macPrompt) return;
-      const k = e.key;
+
       // While the Hint panel is open, still let Space validate the case (it auto-closes the
       // hint via onSuccess) and Backspace skip; other trainer keys stay disabled so the modal
       // keeps its own behavior.
       if (hintOpen) {
-        if (k === " ") { e.preventDefault(); validate(); return; }
-        if (k === "Backspace") { e.preventDefault(); setHintOpen(false); skipCase(); return; }
+        if (e.key === " ") { e.preventDefault(); validate(); return; }
+        if (e.key === "Backspace") { e.preventDefault(); setHintOpen(false); skipCase(); return; }
         return;
       }
-      if (k === "Backspace") { e.preventDefault(); skipCase(); return; }
-      if (k === " ") { e.preventDefault(); validate(); return; }
-      if (k === "Escape") { e.preventDefault(); resetAndStop(); return; }
-      if (k.toLowerCase() === "h") { e.preventDefault(); setHintOpen(true); return; }
+      if (e.key === "Backspace") { e.preventDefault(); skipCase(); return; }
+      if (e.key === " ") { e.preventDefault(); validate(); return; }
+      if (e.key === "Escape") { e.preventDefault(); resetAndStop(); return; }
+      if (k === "h") { e.preventDefault(); setHintOpen(true); return; }
+
       const map = { u: "U", r: "R", f: "F", d: "D", l: "L", b: "B" };
-      const face = map[k.toLowerCase()];
+      const face = map[k];
       if (face) {
         if (!settings.showManual) return;
+        if (e.ctrlKey || e.altKey || e.metaKey) return;
+        for (const pressedKey of pressedKeysRef.current) {
+          if (!ALLOWED_MOVE_KEYS.has(pressedKey)) return;
+        }
         e.preventDefault();
         doMove(e.shiftKey ? face + "'" : face);
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+
+    const handleKeyUp = (e) => {
+      pressedKeysRef.current.delete(e.key.toLowerCase());
+    };
+
+    const handleBlur = () => {
+      pressedKeysRef.current.clear();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+    };
   }, [doMove, skipCase, validate, resetAndStop, drawer, hintOpen, subsetOpen, macPrompt, settings.showManual]);
 
   const handleConnect = useCallback(async () => {
@@ -1364,7 +1389,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
             <div data-testid="count-selectors" style={{ marginTop: 18 }}>
               <CountRow label="Edge flips (count)" testidPrefix="flip-count" available={FLIP_COUNTS_AVAILABLE} selected={settings.flipCounts || [2]} onToggle={toggleCount("flipCounts")} />
               <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
-                How many edges are flipped per drilled case. (No per-case selection for flips yet.)
+                How many edges are flipped per drilled case.
               </p>
             </div>
           )}
@@ -1372,7 +1397,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
             <div data-testid="count-selectors" style={{ marginTop: 18 }}>
               <CountRow label="Corner twists (count)" testidPrefix="twist-count" available={TWIST_COUNTS_AVAILABLE} selected={settings.twistCounts || [2]} onToggle={toggleCount("twistCounts")} />
               <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
-                How many corners are twisted per drilled case. (No per-case selection for twists yet.)
+                How many corners are twisted per drilled case.
               </p>
             </div>
           )}
@@ -1925,9 +1950,6 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
             </select>
           </div>
         </div>
-        <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
-          How you hold the cube while lettering. Default: white top, green front.
-        </span>
       </Field>
       <Toggle label="Sound feedback" testid="sound-toggle" value={settings.sound} onChange={(v) => set("sound", v)} />
       <Toggle label="Manual move buttons" testid="manual-toggle" value={settings.showManual} onChange={(v) => set("showManual", v)} />
@@ -1936,9 +1958,6 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
           <option value="uniform">Uniform (random)</option>
           <option value="spaced">Spaced repetition (FSRS)</option>
         </select>
-        <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
-          Spaced repetition shows slower / less-recalled cases more often, graded from your solve time.
-        </span>
       </Field>
       {settings.distribution !== "spaced" && (
         <>
@@ -1966,9 +1985,6 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
                 }}
                 style={{ ...inputStyle, width: 110, boxSizing: "border-box" }}
               />
-              <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
-                Fixed seed for deterministic random case selection (default: 42).
-              </span>
             </Field>
           )}
         </>
@@ -1989,9 +2005,6 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
               />
               <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>seconds</span>
             </div>
-            <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
-              If a solve takes longer, it won't update the schedule (the case stays due).
-            </span>
           </Field>
           <button data-testid="reset-schedule-btn" onClick={resetSchedule} style={{ ...ghostBtn, justifyContent: "center" }}>Reset spaced-repetition memory</button>
         </>
@@ -2001,9 +2014,6 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
         <button data-testid="open-subset-btn" onClick={onOpenSubset} style={{ ...moveBtn, width: "100%", padding: "11px 14px", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, background: "var(--surface-2)" }}>
           <Grid3X3 size={15} /> Select case subset & flip/twist counts
         </button>
-        <span className="font-mono" style={{ fontSize: 11, color: "#52525B", marginTop: 6, display: "block" }}>
-          Corners/edges: pick which target pairs get drilled. Flips/twists: pick how many pieces per case.
-        </span>
       </div>
       <Field label="Cube MAC address (GAN / MoYu / QiYi)">
         <input
@@ -2019,9 +2029,6 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
         </span>
       </Field>
       <button data-testid="reset-stats-btn" onClick={resetStats} style={{ ...ghostBtn, borderColor: "var(--error)", color: "var(--error)", justifyContent: "center", marginTop: 8 }}>Reset all statistics</button>
-      <p className="font-mono" style={{ color: "#52525B", fontSize: 12, lineHeight: 1.6 }}>
-        Execute the commutator for the shown pair on your cube. When the cube reaches the resulting state, the next pair appears automatically. No cube? Use the manual move buttons or keyboard (U R F D L B, hold Shift for prime).
-      </p>
       <a data-testid="github-link" href="https://github.com/Tijoxa/3-style-drill" target="_blank" rel="noreferrer"
         title="View source on GitHub"
         style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#52525B", textDecoration: "none", marginTop: 4, fontSize: 11, fontFamily: "'JetBrains Mono', monospace", alignSelf: "flex-start", transition: "color 120ms ease" }}
