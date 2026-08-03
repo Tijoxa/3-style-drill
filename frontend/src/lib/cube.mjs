@@ -227,7 +227,7 @@ export function getCaseCellKey(codeKey, category, maps = SCHEMES.speffz) {
     if (ltctCaseKind(codeKey) !== "t2c") return null;
     const d = caseCodeToDisplay(codeKey, "t2c", maps);
     const l1 = d[0], l2 = d[1];
-    return [l1, l2].sort().join(":");
+    return `${l1}:${l2}`;
   }
   if (category === "ltct") {
     if (ltctCaseKind(codeKey) !== "ltct") return null;
@@ -235,7 +235,7 @@ export function getCaseCellKey(codeKey, category, maps = SCHEMES.speffz) {
     const m = d.match(/^(.+?)(.+?)\[(.+?)\]$/);
     if (!m) return null;
     const l1 = m[2], l2 = m[3];
-    return [l1, l2].sort().join(":");
+    return `${l1}:${l2}`;
   }
   if (category === "parity") {
     const chs = codeKey.split("");

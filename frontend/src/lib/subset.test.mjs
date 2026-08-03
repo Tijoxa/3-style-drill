@@ -7,11 +7,11 @@ test("getCaseCellKey extracts cell keys for T2C, LTCT, and Parity", async () => 
 
   // T2C sample: "DAM" (blddb key for DA[M])
   const t2cCell = getCaseCellKey("DAM", "t2c", maps);
-  expect(t2cCell).toBe("A:D"); // sorted pair of A and D
+  expect(t2cCell).toBe("A:D"); // directed pair A:D
 
   // LTCT sample: "JAE" (blddb key for CD[E], buffer C)
   const ltctCell = getCaseCellKey("JAE", "ltct", maps);
-  expect(ltctCell).toBe("D:E"); // sorted pair of D and E
+  expect(ltctCell).toBe("D:E"); // directed pair D:E (target1: D, target2: E)
 
   // Parity sample: "GAJA" (blddb key for Parity: e1=B, e2=C, c1=C, c2=D)
   const parityCell = getCaseCellKey("GAJA", "parity", maps);
@@ -32,7 +32,7 @@ test("T2C dataset valid cells and holes", async () => {
   });
 
   expect(t2cCasesCount).toBe(126);
-  expect(validCells.size).toBe(63); // 63 valid cells in bottom-left triangle
+  expect(validCells.size).toBe(63); // 63 valid cells (2 algs per cell)
 });
 
 test("LTCT dataset valid cells and holes", async () => {
@@ -49,7 +49,7 @@ test("LTCT dataset valid cells and holes", async () => {
   });
 
   expect(ltctCasesCount).toBe(252);
-  expect(validCells.size).toBe(168); // 168 valid cells in bottom-left triangle
+  expect(validCells.size).toBe(252); // 252 valid cells in 24x24 square grid
 });
 
 test("Parity dataset valid cells and holes", async () => {

@@ -1052,7 +1052,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     }
     if (isLtct || isT2c) {
       if (rItem === cItem || pieceOf(rItem, "corner") === pieceOf(cItem, "corner")) return true;
-      const cellKey = [rItem, cItem].sort().join(":");
+      const cellKey = `${rItem}:${cItem}`;
       return !(cellData && cellData.validCells && cellData.validCells.has(cellKey));
     }
     if (isParity) {
@@ -1068,13 +1068,13 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   }, [isStandardGrid, pieceOf, bufPiece]);
 
   const isHidden = useCallback((rItem, cItem, rIdx, cIdx) => {
-    if (isParity) return false; // Full 24x24 square grid
-    return rIdx <= cIdx; // Bottom-left triangle only
-  }, [isParity]);
+    if (isExtraGrid) return false; // Full 24x24 square grid for Parity, LTCT, and T2C
+    return rIdx <= cIdx; // Bottom-left triangle only for standard corner/edge
+  }, [isExtraGrid]);
 
   const cellKeyFor = useCallback((rItem, cItem) => {
     if (isParity) return `${rItem.toUpperCase()}:${cItem.toUpperCase()}`;
-    if (isLtct || isT2c) return [rItem, cItem].sort().join(":");
+    if (isLtct || isT2c) return `${rItem}:${cItem}`;
     return `${rItem}:${cItem}`;
   }, [isParity, isLtct, isT2c]);
 
