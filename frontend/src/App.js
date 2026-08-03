@@ -171,7 +171,7 @@ export default function App() {
           const baseMaps = SCHEMES[s.scheme] || SCHEMES.speffz;
           setPair({ code: kkey, display: caseCodeToDisplay(kkey, m, baseMaps), type: m });
           // Highlight the letter stickers (one face per piece): flips/twists = all green;
-          // ltct/t2c = first two green + bracketed (twisted) piece blue; parity = 1st edge &
+          // ltct/t2c = first letter green, second letter dark green + bracketed (twisted) piece blue; parity = 1st edge &
           // 1st corner blue, the other two green.
           const g = orientPerm(s.orientation?.top || "white", s.orientation?.front || "green");
           const chars = kkey.split("");
@@ -180,11 +180,11 @@ export default function App() {
             const canonicalIdx = codeCharToFacelet(chars[i], charType(i));
             return canonicalIdx != null ? g[canonicalIdx] : null;
           };
-          let greenSet = [], blueSet = [];
-          if (m === "ltct" && chars.length === 3) { greenSet = [fFor(0), fFor(1)]; blueSet = [fFor(2)]; }
+          let greenSet = [], darkGreenSet = [], blueSet = [];
+          if (m === "ltct" && chars.length === 3) { greenSet = [fFor(0)]; darkGreenSet = [fFor(1)]; blueSet = [fFor(2)]; }
           else if (m === "parity" && chars.length === 4) { blueSet = [fFor(0), fFor(2)]; greenSet = [fFor(1), fFor(3)]; }
           else { greenSet = chars.map((_, i) => fFor(i)); }
-          setHighlights({ greenSet: greenSet.filter((x) => x != null), blueSet: blueSet.filter((x) => x != null) });
+          setHighlights({ greenSet: greenSet.filter((x) => x != null), darkGreenSet: darkGreenSet.filter((x) => x != null), blueSet: blueSet.filter((x) => x != null) });
           return;
         }
       }
