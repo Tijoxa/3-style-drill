@@ -609,9 +609,6 @@ export default function App() {
             ...(isMobile ? { order: 3, flexBasis: "100%", justifyContent: "center" } : {})
           }}
         >
-          <span className="overline font-head" style={{ fontSize: 10, color: "#7a7a7a", marginRight: 4, letterSpacing: "0.1em", display: isMobile ? "none" : "inline-block" }}>
-            TRAIN ON:
-          </span>
           {ALL_CATEGORIES.map((c) => {
             const checked = selectedModes.includes(c);
             return (
@@ -693,7 +690,13 @@ export default function App() {
             transition={{ duration: 0.08 }}
             style={{ fontSize: "clamp(5rem, 15vw, 18rem)", lineHeight: 1, fontWeight: 800, letterSpacing: "-0.04em", color: flashColor }}
           >
-            {pairText}
+            {pair?.type === "parity" && typeof pairText === "string" && pairText.includes("\u2002") ? (
+              <>
+                <span>{pairText.split("\u2002")[0]}</span>
+                <span style={{ display: "inline-block", width: "0.25em" }} />
+                <span>{pairText.split("\u2002")[1]}</span>
+              </>
+            ) : pairText}
           </motion.div>
         </AnimatePresence>
 
@@ -1961,7 +1964,7 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
                   const val = e.target.value === "" ? "" : Number(e.target.value);
                   set("seed", val);
                 }}
-                style={{ ...selectStyle, width: 110, boxSizing: "border-box" }}
+                style={{ ...inputStyle, width: 110, boxSizing: "border-box" }}
               />
               <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
                 Fixed seed for deterministic random case selection (default: 42).
@@ -1982,7 +1985,7 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
                   const v = Math.max(1, Math.min(120, Number(e.target.value) || 10));
                   set("srTimeoutMs", v * 1000);
                 }}
-                style={{ ...selectStyle, width: 90, boxSizing: "border-box" }}
+                style={{ ...inputStyle, width: 90, boxSizing: "border-box" }}
               />
               <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>seconds</span>
             </div>
@@ -2082,4 +2085,27 @@ const pillStyle = (color) => ({
 const iconBtn = { display: "grid", placeItems: "center", width: 38, height: 38, borderRadius: 10, border: "1px solid var(--line)", background: "var(--surface)", color: "#fff", cursor: "pointer" };
 const ghostBtn = { display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", borderRadius: 10, border: "1px solid var(--line)", background: "transparent", color: "#A1A1AA", cursor: "pointer", fontSize: 13, fontFamily: "'JetBrains Mono', monospace" };
 const moveBtn = { minWidth: 40, padding: "7px 10px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--surface-2)", color: "#fff", cursor: "pointer", fontFamily: "'JetBrains Mono', monospace", fontSize: 14, fontWeight: 700 };
-const selectStyle = { padding: "10px 12px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--surface-2)", color: "#fff", fontFamily: "'JetBrains Mono', monospace", fontSize: 14 };
+const inputStyle = {
+  padding: "10px 14px",
+  borderRadius: 8,
+  border: "1px solid var(--line)",
+  background: "var(--surface-2)",
+  color: "#fff",
+  fontFamily: "'JetBrains Mono', monospace",
+  fontSize: 14,
+  outline: "none",
+};
+
+const selectStyle = {
+  appearance: "none",
+  WebkitAppearance: "none",
+  MozAppearance: "none",
+  padding: "10px 36px 10px 14px",
+  borderRadius: 8,
+  border: "1px solid var(--line)",
+  background: `var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23A1A1AA' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E") no-repeat right 14px center`,
+  color: "#fff",
+  fontFamily: "'JetBrains Mono', monospace",
+  fontSize: 14,
+  cursor: "pointer",
+};
