@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { orientationPerm } from "../lib/cube.mjs";
+import { userFaceToCubeFaceMap } from "../lib/cube.mjs";
 
 const COLORS = {
   U: "#FFFFFF", R: "#C41E3A", F: "#009E60",
@@ -18,15 +18,15 @@ function cellFor(i) {
 }
 
 export default function CubeNet({ state, highlights = {}, orientation }) {
-  // g[worldSlot] = hardware facelet shown at that slot; gInv maps hardware idx -> world slot.
-  const g = useMemo(() => orientationPerm(orientation), [orientation]);
-  const gInv = useMemo(() => { const inv = new Array(54); g.forEach((h, i) => { inv[h] = i; }); return inv; }, [g]);
+  // Trainer state and highlights are user-relative. Only colour identities need
+  // translating back to the physical cube for the selected orientation.
+  const faceColors = useMemo(() => userFaceToCubeFaceMap(orientation), [orientation]);
 
-  const bufferSlot = highlights.bufferIdx != null ? gInv[highlights.bufferIdx] : null;
-  const t1Slot = highlights.t1Idx != null ? gInv[highlights.t1Idx] : null;
-  const t2Slot = highlights.t2Idx != null ? gInv[highlights.t2Idx] : null;
+  const bufferSlot = highlights.bufferIdx;
+  const t1Slot = highlights.t1Idx;
+  const t2Slot = highlights.t2Idx;
   // Optional multi-sticker highlight sets (used by flips/twists/parity/ltct cases).
-  const mapSlots = (arr) => (Array.isArray(arr) ? arr.map((h) => gInv[h]).filter((x) => x != null) : []);
+  const mapSlots = (arr) => (Array.isArray(arr) ? arr.filter((x) => x != null) : []);
   const extraSlots = mapSlots(highlights.set);        // legacy green set
   const greenSlots = mapSlots(highlights.greenSet);   // green (correct target letters)
   const darkGreenSlots = mapSlots(highlights.darkGreenSet); // darker green (second letter in LTCT/T2C)
@@ -40,7 +40,7 @@ export default function CubeNet({ state, highlights = {}, orientation }) {
   const cells = [];
   for (let i = 0; i < 54; i++) {
     const { row, col } = cellFor(i);
-    const color = COLORS[state[g[i]]] || "#333";
+    const color = COLORS[faceColors[state[i]]] || "#333";
     const isBlue = blueSet.has(i);
     const isGreen = greenSet.has(i);
     const isDarkGreen = darkGreenSet.has(i);
