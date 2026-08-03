@@ -128,6 +128,7 @@ const CATEGORY_FILES = {
   twists: { nightmare: "twistsNightmare", manmade: "twistsManmade" },
   parity: { selected: "parityNightmareSelected", nightmare: "parityNightmare", manmade: "parityManmade" },
   ltct:   { nightmare: "ltctNightmare", manmade: "ltctManmade" },
+  t2c:    { nightmare: "ltctNightmare", manmade: "ltctManmade" },
 };
 
 export const CATEGORY_STYLE_OPTIONS = [
