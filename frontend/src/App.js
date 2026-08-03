@@ -1478,7 +1478,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
               </div>
 
               <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 12, lineHeight: 1.6 }}>
-                {isT2c && "One square = 2 algs (e.g. AD[M] and DA[M]). The letter in brackets (twisted buffer) is omitted from the axis."}
+                {isT2c && "One square = 2 algs (e.g. AD[J] and AD[M]). The letter in brackets (twisted buffer) is omitted from the axis."}
                 {isLtct && "The first letter (buffer C) is constant and omitted from the axis. Each square = cases for target pair {A,B}."}
                 {isParity && "Square grid: Rows = 1st letter (Edge), Columns = 3rd letter (Corner) of the 4-letter parity case."}
                 {isStandardGrid && "One cell = one pair {A,B} (both commutators AB and BA). Only the bottom-left triangle is shown since a pair is learnt as a single unit; enabling/disabling a cell applies to both directions. Click or drag to paint. Click a row/column label to toggle every pair containing that letter."}
