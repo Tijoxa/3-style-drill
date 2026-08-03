@@ -1420,7 +1420,7 @@ function SubsetViewSwitch({ view, setView }) {
     const r = el.getBoundingClientRect();
     const GAP = 6;
     const menuW = Math.max(170, r.width);
-    const menuH = 160;
+    const menuH = 240;
     let left = r.left;
     if (left + menuW > window.innerWidth - 8) {
       left = Math.max(8, window.innerWidth - 8 - menuW);
@@ -1514,7 +1514,7 @@ function SubsetViewSwitch({ view, setView }) {
               borderRadius: 10,
               padding: 6,
               minWidth: pos.width || 170,
-              maxHeight: 160,
+              maxHeight: 240,
               overflowY: "auto",
               boxShadow: "0 8px 24px rgba(0,0,0,0.55)"
             }}
