@@ -1195,6 +1195,14 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     return { ...s, [field]: next.sort((a, b) => a - b) };
   });
 
+  const allDisabledForLetter = useCallback((L) => {
+    return rowLetters.every((x) => {
+      if (x === L || isImpossible(L, x) || isBufferExcluded(L, x)) return true;
+      const ck = cellKeyFor(L, x);
+      return !!work[ck];
+    });
+  }, [rowLetters, isImpossible, isBufferExcluded, cellKeyFor, work]);
+
   const allDisabledForRow = useCallback((rItem) => {
     const rIdx = rowLetters.indexOf(rItem);
     return colLetters.every((cItem, cIdx) => {
@@ -1212,18 +1220,22 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   }, [rowLetters, colLetters, isHidden, isImpossible, isBufferExcluded, work, cellKeyFor]);
 
   const handleRowClick = (rItem) => {
-    const filter = !isParity
+    const filter = isStandardGrid
       ? (r, c) => r === rItem || c === rItem
       : (r, c) => r === rItem;
-    const allDis = allDisabledForRow(rItem);
+    const allDis = isStandardGrid
+      ? allDisabledForLetter(rItem)
+      : allDisabledForRow(rItem);
     commitBulk(allDis ? "enable" : "disable", filter);
   };
 
   const handleColClick = (cItem) => {
-    const filter = !isParity
+    const filter = isStandardGrid
       ? (r, c) => r === cItem || c === cItem
       : (r, c) => c === cItem;
-    const allDis = allDisabledForCol(cItem);
+    const allDis = isStandardGrid
+      ? allDisabledForLetter(cItem)
+      : allDisabledForCol(cItem);
     commitBulk(allDis ? "enable" : "disable", filter);
   };
 
