@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Toaster, toast } from "sonner";
 import {
   Bluetooth, BluetoothConnected, Settings as SettingsIcon, BarChart3,
-  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info, ChevronDown, AlertTriangle, Pause, Play,
+  X, RotateCcw, SkipForward, Keyboard, BatteryMedium, Lightbulb, ExternalLink, Loader2, Grid3X3, Github, Info, ChevronDown, AlertTriangle, Pause, Play, Check,
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
@@ -116,13 +116,16 @@ export default function App() {
     setSelectedModes((prev) => {
       if (prev.includes(cat)) {
         if (prev.length === 1) {
-          toast.info("Select at least one algorithm set to train on.");
           return prev;
         }
         return prev.filter((c) => c !== cat);
       }
       return [...prev, cat];
     });
+  }, []);
+
+  const selectOnlyMode = useCallback((cat) => {
+    setSelectedModes([cat]);
   }, []);
 
   const getRandom = useCallback(() => {
@@ -596,10 +599,14 @@ export default function App() {
                 key={c}
                 data-testid={`mode-${c}`}
                 data-checked={checked}
+                onDoubleClick={(e) => {
+                  e.preventDefault();
+                  selectOnlyMode(c);
+                }}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
-                  gap: 6,
+                  gap: 7,
                   padding: isMobile ? "6px 8px" : "5px 10px",
                   borderRadius: 6,
                   fontSize: 12,
@@ -610,16 +617,32 @@ export default function App() {
                   transition: "all 0.15s ease",
                   background: checked ? "var(--surface-2)" : "transparent",
                   color: checked ? "#fff" : "#7a7a7a",
-                  border: checked ? "1px solid var(--active)" : "1px solid transparent",
-                  boxShadow: checked ? "0 0 8px rgba(147, 197, 253, 0.12)" : "none",
+                  border: checked ? "1px solid var(--active)" : "1px solid var(--line)",
+                  boxShadow: checked ? "0 0 8px rgba(0, 122, 255, 0.18)" : "none",
                 }}
               >
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => toggleMode(c)}
-                  style={{ accentColor: "var(--active)", cursor: "pointer", width: 13, height: 13 }}
+                  style={{ position: "absolute", opacity: 0, width: 0, height: 0, pointerEvents: "none" }}
                 />
+                <div
+                  style={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: 3.5,
+                    border: checked ? "1px solid var(--active)" : "1px solid #3F3F46",
+                    background: checked ? "var(--active)" : "var(--surface)",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "all 0.15s ease",
+                    flexShrink: 0,
+                  }}
+                >
+                  {checked && <Check size={10} style={{ color: "#fff", strokeWidth: 3 }} />}
+                </div>
                 <span>{CATEGORY_META[c]?.short || c.toUpperCase()}</span>
               </label>
             );
@@ -827,7 +850,23 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
           />
           {mac && !valid && <div className="font-mono" style={{ color: "var(--error)", fontSize: 11, marginTop: 6 }}>Format: AA:BB:CC:DD:EE:FF</div>}
           <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, cursor: "pointer" }}>
-            <input data-testid="mac-remember" type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} />
+            <input data-testid="mac-remember" type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} style={{ position: "absolute", opacity: 0, width: 0, height: 0, pointerEvents: "none" }} />
+            <div
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 3.5,
+                border: remember ? "1px solid var(--active)" : "1px solid #3F3F46",
+                background: remember ? "var(--active)" : "var(--surface-2)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                transition: "all 0.15s ease",
+                flexShrink: 0,
+              }}
+            >
+              {remember && <Check size={10} style={{ color: "#fff", strokeWidth: 3 }} />}
+            </div>
             <span className="font-mono" style={{ fontSize: 12, color: "#A1A1AA" }}>Remember this MAC address</span>
           </label>
           <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "flex-end", flexWrap: "wrap" }}>
