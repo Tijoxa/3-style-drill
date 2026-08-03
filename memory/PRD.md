@@ -81,6 +81,12 @@ Build an app to drill 3x3 Rubik's cube 3-style (blind method) commutators with a
 - **blddb deep link**: the hint's `hint-blddb-link` now opens the exact case pre-filled — `${categoryUrl}?position=<pos1>-<pos2>-...&mode=<style>`, where positions come from `caseKeyToPositions(data.key, type)` (`faceletToPosition` builds blddb face-name positions, faces ordered U/D→F/B→L/R rotated to the sticker's face; validated against blddb's documented `UFR-UFL-UBL`).
 - Verified by testing_agent iteration_8 (6/7, colors/labels/links) + iteration_9 (hint auto-close fixed).
 
+## Subset selection refinement for Parity, LTCT & T2C [2026-08]
+- **T2C Subset Grid**: Triangle grid (corner letters). Bracketed letter (twisted buffer) is omitted from axes; each cell represents target pair {t1, t2} (1 square = 2 algs). Cells with no algorithm in blddb are marked as impossible holes (63 valid cells, 213 holes).
+- **LTCT Subset Grid**: Triangle grid (corner letters). 1st letter (buffer C) is constant and omitted; each cell represents target pair {t1, t2}. Cells with no algorithm are marked as impossible holes (168 valid cells, 108 holes).
+- **Parity Subset Grid**: 24x24 Square grid. Rows = 1st letter (Edge), Columns = 3rd letter (Corner) of the 4-letter parity code (`e1 e2 c1 c2`). Combinations with no algorithm are marked as impossible holes (8 valid cells, 568 holes).
+- **Drill Engine Filtering**: `getCaseCellKey(codeKey, category, maps)` maps case keys to their grid cell keys. `buildCase` filters drill candidates against `disabledCases` for Parity, LTCT, and T2C. Header counter shows active/total cells and algs.
+
 ## Debug hooks (dev/testing) — orig
 window.__trainer: solveCurrent, getSuccess, getState, getTarget, feedFacelets, markSolved, openMacPrompt.
 window.__cube: SOLVED, applyMove, applyAlg, scramble.

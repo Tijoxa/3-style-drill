@@ -221,6 +221,32 @@ export function caseCodeToDisplay(codeKey, category, maps = SCHEMES.speffz) {
   return letters.join("");
 }
 
+// Maps a case code key ("ADK", "GAJA", etc.) to its subset grid cell key for t2c, ltct, or parity.
+export function getCaseCellKey(codeKey, category, maps = SCHEMES.speffz) {
+  if (category === "t2c") {
+    if (ltctCaseKind(codeKey) !== "t2c") return null;
+    const d = caseCodeToDisplay(codeKey, "t2c", maps);
+    const l1 = d[0], l2 = d[1];
+    return [l1, l2].sort().join(":");
+  }
+  if (category === "ltct") {
+    if (ltctCaseKind(codeKey) !== "ltct") return null;
+    const d = caseCodeToDisplay(codeKey, "ltct", maps);
+    const m = d.match(/^(.+?)(.+?)\[(.+?)\]$/);
+    if (!m) return null;
+    const l1 = m[2], l2 = m[3];
+    return [l1, l2].sort().join(":");
+  }
+  if (category === "parity") {
+    const chs = codeKey.split("");
+    if (chs.length < 4) return null;
+    const e1 = codeToSchemeLetter(chs[0], "edge", maps);
+    const c1 = codeToSchemeLetter(chs[2], "corner", maps);
+    return `${e1}:${c1}`;
+  }
+  return null;
+}
+
 // blddb code char -> our canonical facelet index (orientation-independent).
 export function codeCharToFacelet(codeChar, type) {
   const map = type === "corner" ? CHICHU_CORNER_CODE_TO_IDX : CHICHU_EDGE_CODE_TO_IDX;
