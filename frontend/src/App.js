@@ -1018,11 +1018,51 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   const edgeLetters = useMemo(() => Object.keys(maps.edge).sort(), [maps]);
   const cornerLetters = useMemo(() => Object.keys(maps.corner).sort(), [maps]);
 
+  const t2cBufferStickers = useMemo(() => {
+    if (!isT2c || !catCasesMap) return [];
+    const set = new Set();
+    Object.keys(catCasesMap).forEach((k) => {
+      if (ltctCaseKind(k) !== "t2c") return;
+      const d = caseCodeToDisplay(k, "t2c", maps);
+      const m = d.match(/^.+?.+?\[(.+?)\]$/);
+      if (m) set.add(m[1]);
+    });
+    return Array.from(set).sort();
+  }, [isT2c, catCasesMap, maps]);
+
+  const cellData = useMemo(() => {
+    if (!isExtraGrid || !catCasesMap) return null;
+    const cat = view;
+    const validCells = new Set();
+    const casesPerCell = {};
+
+    Object.keys(catCasesMap).forEach((k) => {
+      if (cat === "ltct" && ltctCaseKind(k) !== "ltct") return;
+      if (cat === "t2c" && ltctCaseKind(k) !== "t2c") return;
+      const cellKey = getCaseCellKey(k, cat, maps);
+      if (!cellKey) return;
+      validCells.add(cellKey);
+      casesPerCell[cellKey] = (casesPerCell[cellKey] || 0) + 1;
+    });
+    return { validCells, casesPerCell };
+  }, [isExtraGrid, catCasesMap, view, maps]);
+
   const rowLetters = useMemo(() => {
+    if (isT2c) {
+      if (!cellData || !cellData.validCells) return cornerLetters;
+      return cornerLetters.filter((r) => {
+        for (const c of cornerLetters) {
+          for (const buf of t2cBufferStickers) {
+            if (cellData.validCells.has(`${r}:${c}:${buf}`)) return true;
+          }
+        }
+        return false;
+      });
+    }
     if (isParity) return edgeLetters; // Rows are 1st letter (Edge)
     if (view === "edge") return edgeLetters;
     return cornerLetters;
-  }, [isParity, view, edgeLetters, cornerLetters]);
+  }, [isT2c, cellData, t2cBufferStickers, isParity, view, edgeLetters, cornerLetters]);
 
   const colLetters = useMemo(() => {
     if (isParity) return cornerLetters; // Cols are 3rd letter (Corner)
@@ -1054,31 +1094,19 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     });
   }, [prefix, setSettings]);
 
-  const cellData = useMemo(() => {
-    if (!isExtraGrid || !catCasesMap) return null;
-    const cat = view;
-    const validCells = new Set();
-    const casesPerCell = {};
-
-    Object.keys(catCasesMap).forEach((k) => {
-      if (cat === "ltct" && ltctCaseKind(k) !== "ltct") return;
-      if (cat === "t2c" && ltctCaseKind(k) !== "t2c") return;
-      const cellKey = getCaseCellKey(k, cat, maps);
-      if (!cellKey) return;
-      validCells.add(cellKey);
-      casesPerCell[cellKey] = (casesPerCell[cellKey] || 0) + 1;
-    });
-    return { validCells, casesPerCell };
-  }, [isExtraGrid, catCasesMap, view, maps]);
-
   const bufPiece = isStandardGrid ? letterPieceId(buffer, type, maps) : null;
   const pieceOf = useCallback((l, t = type) => letterPieceId(l, t, maps), [type, maps]);
 
-  const isImpossible = useCallback((rItem, cItem) => {
+  const isImpossible = useCallback((rItem, cItem, buf) => {
     if (isStandardGrid) {
       return rItem === cItem || pieceOf(rItem) === pieceOf(cItem);
     }
-    if (isLtct || isT2c) {
+    if (isT2c) {
+      if (rItem === cItem || pieceOf(rItem, "corner") === pieceOf(cItem, "corner")) return true;
+      const cellKey = `${rItem}:${cItem}:${buf}`;
+      return !(cellData && cellData.validCells && cellData.validCells.has(cellKey));
+    }
+    if (isLtct) {
       if (rItem === cItem || pieceOf(rItem, "corner") === pieceOf(cItem, "corner")) return true;
       const cellKey = `${rItem}:${cItem}`;
       return !(cellData && cellData.validCells && cellData.validCells.has(cellKey));
@@ -1088,7 +1116,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
       return !(cellData && cellData.validCells && cellData.validCells.has(cellKey));
     }
     return false;
-  }, [isStandardGrid, isLtct, isT2c, isParity, pieceOf, cellData]);
+  }, [isStandardGrid, isT2c, isLtct, isParity, pieceOf, cellData]);
 
   const isBufferExcluded = useCallback((rItem, cItem) => {
     if (!isStandardGrid) return false;
@@ -1096,47 +1124,49 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   }, [isStandardGrid, pieceOf, bufPiece]);
 
   const isHidden = useCallback((rItem, cItem, rIdx, cIdx) => {
-    if (isExtraGrid) return false; // Full 24x24 square grid for Parity, LTCT, and T2C
+    if (isExtraGrid) return false; // Full grid for Parity, LTCT, and T2C
     return rIdx <= cIdx; // Bottom-left triangle only for standard corner/edge
   }, [isExtraGrid]);
 
-  const cellKeyFor = useCallback((rItem, cItem) => {
+  const cellKeyFor = useCallback((rItem, cItem, buf) => {
     if (isParity) return `${rItem.toUpperCase()}:${cItem.toUpperCase()}`;
-    if (isLtct || isT2c) return `${rItem}:${cItem}`;
+    if (isT2c) return `${rItem}:${cItem}:${buf}`;
+    if (isLtct) return `${rItem}:${cItem}`;
     return `${rItem}:${cItem}`;
-  }, [isParity, isLtct, isT2c]);
+  }, [isParity, isT2c, isLtct]);
 
   const [drag, setDrag] = useState(null);
   const dragRef = useRef(null);
   useEffect(() => { dragRef.current = drag; }, [drag]);
 
-  const inDragRect = useCallback((rItem, cItem) => {
+  const inDragRect = useCallback((rItem, cItem, buf) => {
     const d = dragRef.current; if (!d) return false;
+    if (isT2c && d.buf !== buf) return false;
     const r = rowLetters.indexOf(rItem);
     const c = colLetters.indexOf(cItem);
     return r >= Math.min(d.r0, d.r1) && r <= Math.max(d.r0, d.r1) && c >= Math.min(d.c0, d.c1) && c <= Math.max(d.c0, d.c1);
-  }, [rowLetters, colLetters]);
+  }, [isT2c, rowLetters, colLetters]);
 
-  const effDisabled = useCallback((rItem, cItem) => {
+  const effDisabled = useCallback((rItem, cItem, buf) => {
     const d = dragRef.current;
-    if (d && inDragRect(rItem, cItem) && !isImpossible(rItem, cItem)) return d.mode === "disable";
-    return !!work[cellKeyFor(rItem, cItem)];
+    if (d && inDragRect(rItem, cItem, buf) && !isImpossible(rItem, cItem, buf)) return d.mode === "disable";
+    return !!work[cellKeyFor(rItem, cItem, buf)];
   }, [inDragRect, work, isImpossible, cellKeyFor]);
 
-  const startDrag = useCallback((rItem, cItem) => {
-    if (isImpossible(rItem, cItem)) return;
-    const ck = cellKeyFor(rItem, cItem);
+  const startDrag = useCallback((rItem, cItem, buf) => {
+    if (isImpossible(rItem, cItem, buf)) return;
+    const ck = cellKeyFor(rItem, cItem, buf);
     const mode = workRef.current[ck] ? "enable" : "disable";
     const rIdx = rowLetters.indexOf(rItem);
     const cIdx = colLetters.indexOf(cItem);
-    setDrag({ mode, r0: rIdx, c0: cIdx, r1: rIdx, c1: cIdx });
+    setDrag({ mode, r0: rIdx, c0: cIdx, r1: rIdx, c1: cIdx, buf });
   }, [rowLetters, colLetters, isImpossible, cellKeyFor]);
 
-  const extendDrag = useCallback((rItem, cItem) => {
+  const extendDrag = useCallback((rItem, cItem, buf) => {
     const r = rowLetters.indexOf(rItem);
     const c = colLetters.indexOf(cItem);
     if (r === -1 || c === -1) return;
-    setDrag((d) => (d && (d.r1 !== r || d.c1 !== c) ? { ...d, r1: r, c1: c } : d));
+    setDrag((d) => (d && (d.r1 !== r || d.c1 !== c || d.buf !== buf) ? { ...d, r1: r, c1: c, buf } : d));
   }, [rowLetters, colLetters]);
 
   useEffect(() => {
@@ -1150,8 +1180,8 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
           for (let c = clo; c <= chi; c++) {
             const rItem = rowLetters[r], cItem = colLetters[c];
             if (isHidden(rItem, cItem, r, c)) continue;
-            if (isImpossible(rItem, cItem)) continue;
-            const ck = cellKeyFor(rItem, cItem);
+            if (isImpossible(rItem, cItem, d.buf)) continue;
+            const ck = cellKeyFor(rItem, cItem, d.buf);
             if (d.mode === "disable") {
               n[ck] = true;
               if (isStandardGrid) n[`${cItem}:${rItem}`] = true;
@@ -1179,7 +1209,9 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
       if (!dragRef.current) return;
       const el = document.elementFromPoint(e.clientX, e.clientY);
       const cellEl = el && el.closest ? el.closest("[data-subcell]") : null;
-      if (cellEl && cellEl.dataset.t1 && cellEl.dataset.t2) extendDrag(cellEl.dataset.t1, cellEl.dataset.t2);
+      if (cellEl && cellEl.dataset.t1 && cellEl.dataset.t2) {
+        extendDrag(cellEl.dataset.t1, cellEl.dataset.t2, cellEl.dataset.buf);
+      }
     };
     window.addEventListener("pointermove", move);
     return () => window.removeEventListener("pointermove", move);
@@ -1194,20 +1226,35 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   const setBulk = (mode, filter) => {
     setWork((w) => {
       const n = { ...w };
-      for (let r = 0; r < rowLetters.length; r++) {
-        const rItem = rowLetters[r];
-        for (let c = 0; c < colLetters.length; c++) {
-          const cItem = colLetters[c];
-          if (isHidden(rItem, cItem, r, c)) continue;
-          if (isImpossible(rItem, cItem)) continue;
-          if (filter && !filter(rItem, cItem)) continue;
-          const ck = cellKeyFor(rItem, cItem);
-          if (mode === "disable") {
-            n[ck] = true;
-            if (isStandardGrid) n[`${cItem}:${rItem}`] = true;
-          } else {
-            delete n[ck];
-            if (isStandardGrid) delete n[`${cItem}:${rItem}`];
+      if (isT2c) {
+        for (const buf of t2cBufferStickers) {
+          for (let r = 0; r < rowLetters.length; r++) {
+            const rItem = rowLetters[r];
+            for (let c = 0; c < colLetters.length; c++) {
+              const cItem = colLetters[c];
+              if (isImpossible(rItem, cItem, buf)) continue;
+              if (filter && !filter(rItem, cItem, buf)) continue;
+              const ck = cellKeyFor(rItem, cItem, buf);
+              if (mode === "disable") n[ck] = true; else delete n[ck];
+            }
+          }
+        }
+      } else {
+        for (let r = 0; r < rowLetters.length; r++) {
+          const rItem = rowLetters[r];
+          for (let c = 0; c < colLetters.length; c++) {
+            const cItem = colLetters[c];
+            if (isHidden(rItem, cItem, r, c)) continue;
+            if (isImpossible(rItem, cItem)) continue;
+            if (filter && !filter(rItem, cItem)) continue;
+            const ck = cellKeyFor(rItem, cItem);
+            if (mode === "disable") {
+              n[ck] = true;
+              if (isStandardGrid) n[`${cItem}:${rItem}`] = true;
+            } else {
+              delete n[ck];
+              if (isStandardGrid) delete n[`${cItem}:${rItem}`];
+            }
           }
         }
       }
@@ -1247,7 +1294,27 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     });
   }, [rowLetters, colLetters, isHidden, isImpossible, isBufferExcluded, work, cellKeyFor]);
 
-  const handleRowClick = (rItem) => {
+  const handleRowClick = (rItem, targetBuf) => {
+    if (isT2c) {
+      setWork((w) => {
+        const n = { ...w };
+        const bufs = targetBuf ? [targetBuf] : t2cBufferStickers;
+        for (const buf of bufs) {
+          const allDis = colLetters.every((cItem) => {
+            if (isImpossible(rItem, cItem, buf)) return true;
+            return !!work[cellKeyFor(rItem, cItem, buf)];
+          });
+          for (const cItem of colLetters) {
+            if (isImpossible(rItem, cItem, buf)) continue;
+            const ck = cellKeyFor(rItem, cItem, buf);
+            if (allDis) delete n[ck]; else n[ck] = true;
+          }
+        }
+        commit(n);
+        return n;
+      });
+      return;
+    }
     const filter = isStandardGrid
       ? (r, c) => r === rItem || c === rItem
       : (r, c) => r === rItem;
@@ -1257,7 +1324,27 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     commitBulk(allDis ? "enable" : "disable", filter);
   };
 
-  const handleColClick = (cItem) => {
+  const handleColClick = (cItem, targetBuf) => {
+    if (isT2c) {
+      setWork((w) => {
+        const n = { ...w };
+        const bufs = targetBuf ? [targetBuf] : t2cBufferStickers;
+        for (const buf of bufs) {
+          const allDis = rowLetters.every((rItem) => {
+            if (isImpossible(rItem, cItem, buf)) return true;
+            return !!work[cellKeyFor(rItem, cItem, buf)];
+          });
+          for (const rItem of rowLetters) {
+            if (isImpossible(rItem, cItem, buf)) continue;
+            const ck = cellKeyFor(rItem, cItem, buf);
+            if (allDis) delete n[ck]; else n[ck] = true;
+          }
+        }
+        commit(n);
+        return n;
+      });
+      return;
+    }
     const filter = isStandardGrid
       ? (r, c) => r === cItem || c === cItem
       : (r, c) => c === cItem;
@@ -1267,9 +1354,9 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
     commitBulk(allDis ? "enable" : "disable", filter);
   };
 
-  const stateOf = (rItem, cItem) => {
-    if (isImpossible(rItem, cItem)) return "impossible";
-    const disabled = effDisabled(rItem, cItem);
+  const stateOf = (rItem, cItem, buf) => {
+    if (isImpossible(rItem, cItem, buf)) return "impossible";
+    const disabled = effDisabled(rItem, cItem, buf);
     if (isStandardGrid && isBufferExcluded(rItem, cItem)) {
       return disabled ? "bufferDisabled" : "bufferEnabled";
     }
@@ -1277,18 +1364,36 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   };
 
   let activeCells = 0, totalCells = 0, activeAlgs = 0, totalAlgs = 0;
-  for (let r = 0; r < rowLetters.length; r++) {
-    const rItem = rowLetters[r];
-    for (let c = 0; c < colLetters.length; c++) {
-      const cItem = colLetters[c];
-      if (isHidden(rItem, cItem, r, c) || isImpossible(rItem, cItem) || isBufferExcluded(rItem, cItem)) continue;
-      totalCells += 1;
-      const ck = cellKeyFor(rItem, cItem);
-      const cCount = cellData ? (cellData.casesPerCell[ck] || 1) : (isStandardGrid ? 2 : 1);
-      totalAlgs += cCount;
-      if (!effDisabled(rItem, cItem)) {
-        activeCells += 1;
-        activeAlgs += cCount;
+  if (isT2c) {
+    for (const buf of t2cBufferStickers) {
+      for (let r = 0; r < rowLetters.length; r++) {
+        const rItem = rowLetters[r];
+        for (let c = 0; c < colLetters.length; c++) {
+          const cItem = colLetters[c];
+          if (isImpossible(rItem, cItem, buf)) continue;
+          totalCells += 1;
+          totalAlgs += 1;
+          if (!effDisabled(rItem, cItem, buf)) {
+            activeCells += 1;
+            activeAlgs += 1;
+          }
+        }
+      }
+    }
+  } else {
+    for (let r = 0; r < rowLetters.length; r++) {
+      const rItem = rowLetters[r];
+      for (let c = 0; c < colLetters.length; c++) {
+        const cItem = colLetters[c];
+        if (isHidden(rItem, cItem, r, c) || isImpossible(rItem, cItem) || isBufferExcluded(rItem, cItem)) continue;
+        totalCells += 1;
+        const ck = cellKeyFor(rItem, cItem);
+        const cCount = cellData ? (cellData.casesPerCell[ck] || 1) : (isStandardGrid ? 2 : 1);
+        totalAlgs += cCount;
+        if (!effDisabled(rItem, cItem)) {
+          activeCells += 1;
+          activeAlgs += cCount;
+        }
       }
     }
   }
@@ -1406,59 +1511,121 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
             <>
               {/* Grid */}
               <div style={{ overflowX: "hidden", touchAction: isMobile ? "pan-y" : "none", paddingBottom: 4, marginTop: 14 }}>
-                <div style={{ display: "inline-block", userSelect: "none" }}>
-                  {/* column header */}
-                  <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
-                    {colLetters.map((cItem) => (
-                      <button key={cItem} data-testid={`subset-col-${cItem}`}
-                        onClick={() => handleColClick(cItem)}
-                        className="font-mono"
-                        style={{ width: cell, height: label, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
-                        {cItem.toUpperCase()}
-                      </button>
+                {isT2c ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                    {t2cBufferStickers.map((buf) => (
+                      <div key={buf} style={{ border: "1px solid var(--line)", borderRadius: 8, padding: "12px 14px", background: "var(--surface-2)" }}>
+                        <div style={{ marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                          <span className="overline font-head" style={{ fontSize: 11, color: "var(--active)", letterSpacing: "0.05em" }}>
+                            Buffer twist [{buf.toUpperCase()}]
+                          </span>
+                        </div>
+                        <div style={{ display: "inline-block", userSelect: "none" }}>
+                          {/* column header */}
+                          <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
+                            {colLetters.map((cItem) => (
+                              <button key={cItem} data-testid={`subset-col-${cItem}-${buf}`}
+                                onClick={() => handleColClick(cItem, buf)}
+                                className="font-mono"
+                                style={{ width: cell, height: label, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+                                {cItem.toUpperCase()}
+                              </button>
+                            ))}
+                          </div>
+                          {rowLetters.map((rItem) => (
+                            <div key={rItem} style={{ display: "flex", gap, marginBottom: gap, alignItems: "center" }}>
+                              <button data-testid={`subset-row-${rItem}-${buf}`}
+                                onClick={() => handleRowClick(rItem, buf)}
+                                className="font-mono"
+                                style={{ width: label, height: cell, marginRight: gap, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "right" }}>
+                                {rItem.toUpperCase()}
+                              </button>
+                              {colLetters.map((cItem) => {
+                                const st = stateOf(rItem, cItem, buf);
+                                const imp = st === "impossible";
+                                return (
+                                  <div
+                                    key={cItem}
+                                    data-testid={`subset-cell-${rItem}-${cItem}-${buf}`}
+                                    data-state={st}
+                                    data-subcell="1"
+                                    data-t1={rItem}
+                                    data-t2={cItem}
+                                    data-buf={buf}
+                                    onPointerDown={(e) => { if (!imp) { e.preventDefault(); startDrag(rItem, cItem, buf); } }}
+                                    onPointerEnter={() => { if (!imp) extendDrag(rItem, cItem, buf); }}
+                                    title={`${rItem.toUpperCase()}${cItem.toUpperCase()}[${buf.toUpperCase()}]`}
+                                    style={{
+                                      width: cell, height: cell, borderRadius: 3, flex: "0 0 auto",
+                                      background: SUBSET_COLORS[st],
+                                      opacity: imp ? 0.35 : 1,
+                                      border: imp ? "1px solid #2a2a2e" : "1px solid rgba(0,0,0,0.35)",
+                                      cursor: imp ? "not-allowed" : "pointer",
+                                    }}
+                                  />
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     ))}
                   </div>
-                  {rowLetters.map((rItem) => (
-                    <div key={rItem} style={{ display: "flex", gap, marginBottom: gap, alignItems: "center" }}>
-                      <button data-testid={`subset-row-${rItem}`}
-                        onClick={() => handleRowClick(rItem)}
-                        className="font-mono"
-                        style={{ width: label, height: cell, marginRight: gap, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "right" }}>
-                        {rItem.toUpperCase()}
-                      </button>
-                      {colLetters.map((cItem, cIdx) => {
-                        const rIdx = rowLetters.indexOf(rItem);
-                        if (isHidden(rItem, cItem, rIdx, cIdx)) {
-                          return <div key={cItem} style={{ width: cell, height: cell, flex: "0 0 auto" }} />;
-                        }
-                        const st = stateOf(rItem, cItem);
-                        const isBuf = st === "bufferEnabled" || st === "bufferDisabled";
-                        const imp = st === "impossible";
-                        return (
-                          <div
-                            key={cItem}
-                            data-testid={`subset-cell-${rItem}-${cItem}`}
-                            data-state={st}
-                            data-subcell="1"
-                            data-t1={rItem}
-                            data-t2={cItem}
-                            onPointerDown={(e) => { if (!imp) { e.preventDefault(); startDrag(rItem, cItem); } }}
-                            onPointerEnter={() => { if (!imp) extendDrag(rItem, cItem); }}
-                            title={isParity ? `1st:${rItem.toUpperCase()} 3rd:${cItem.toUpperCase()}` : `${rItem.toUpperCase()}${cItem.toUpperCase()}`}
-                            style={{
-                              width: cell, height: cell, borderRadius: 3, flex: "0 0 auto",
-                              background: SUBSET_COLORS[st],
-                              backgroundImage: isBuf ? STRIPES : "none",
-                              opacity: isBuf ? 0.42 : (imp ? 0.35 : 1),
-                              border: imp ? "1px solid #2a2a2e" : "1px solid rgba(0,0,0,0.35)",
-                              cursor: imp ? "not-allowed" : "pointer",
-                            }}
-                          />
-                        );
-                      })}
+                ) : (
+                  <div style={{ display: "inline-block", userSelect: "none" }}>
+                    {/* column header */}
+                    <div style={{ display: "flex", gap, marginBottom: gap, marginLeft: label + gap }}>
+                      {colLetters.map((cItem) => (
+                        <button key={cItem} data-testid={`subset-col-${cItem}`}
+                          onClick={() => handleColClick(cItem)}
+                          className="font-mono"
+                          style={{ width: cell, height: label, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+                          {cItem.toUpperCase()}
+                        </button>
+                      ))}
                     </div>
-                  ))}
-                </div>
+                    {rowLetters.map((rItem) => (
+                      <div key={rItem} style={{ display: "flex", gap, marginBottom: gap, alignItems: "center" }}>
+                        <button data-testid={`subset-row-${rItem}`}
+                          onClick={() => handleRowClick(rItem)}
+                          className="font-mono"
+                          style={{ width: label, height: cell, marginRight: gap, fontSize: 10, color: "#A1A1AA", background: "transparent", border: "none", cursor: "pointer", padding: 0, textAlign: "right" }}>
+                          {rItem.toUpperCase()}
+                        </button>
+                        {colLetters.map((cItem, cIdx) => {
+                          const rIdx = rowLetters.indexOf(rItem);
+                          if (isHidden(rItem, cItem, rIdx, cIdx)) {
+                            return <div key={cItem} style={{ width: cell, height: cell, flex: "0 0 auto" }} />;
+                          }
+                          const st = stateOf(rItem, cItem);
+                          const isBuf = st === "bufferEnabled" || st === "bufferDisabled";
+                          const imp = st === "impossible";
+                          return (
+                            <div
+                              key={cItem}
+                              data-testid={`subset-cell-${rItem}-${cItem}`}
+                              data-state={st}
+                              data-subcell="1"
+                              data-t1={rItem}
+                              data-t2={cItem}
+                              onPointerDown={(e) => { if (!imp) { e.preventDefault(); startDrag(rItem, cItem); } }}
+                              onPointerEnter={() => { if (!imp) extendDrag(rItem, cItem); }}
+                              title={isParity ? `1st:${rItem.toUpperCase()} 3rd:${cItem.toUpperCase()}` : `${rItem.toUpperCase()}${cItem.toUpperCase()}`}
+                              style={{
+                                width: cell, height: cell, borderRadius: 3, flex: "0 0 auto",
+                                background: SUBSET_COLORS[st],
+                                backgroundImage: isBuf ? STRIPES : "none",
+                                opacity: isBuf ? 0.42 : (imp ? 0.35 : 1),
+                                border: imp ? "1px solid #2a2a2e" : "1px solid rgba(0,0,0,0.35)",
+                                cursor: imp ? "not-allowed" : "pointer",
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Controls + instructions + legend (below grid) */}
@@ -1478,7 +1645,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
               </div>
 
               <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 12, lineHeight: 1.6 }}>
-                {isT2c && "One square = 2 algs (e.g. AD[J] and AD[M]). The letter in brackets (twisted buffer) is omitted from the axis."}
+                {isT2c && "Two rectangles: one for each twisted buffer orientation. Each cell = 1 case."}
                 {isLtct && "The first letter (buffer C) is constant and omitted from the axis. Each square = cases for target pair {A,B}."}
                 {isParity && "Square grid: Rows = 1st letter (Edge), Columns = 3rd letter (Corner) of the 4-letter parity case."}
                 {isStandardGrid && "One cell = one pair {A,B} (both commutators AB and BA). Only the bottom-left triangle is shown since a pair is learnt as a single unit; enabling/disabling a cell applies to both directions. Click or drag to paint. Click a row/column label to toggle every pair containing that letter."}
