@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
-  orientMaps, orientAlg, orientPerm, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay, ltctCaseKind,
+  cubeMoveToUserMove, cubeStateToUserState, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay, ltctCaseKind,
   codeCharToFacelet, caseKeyToPositions, getCaseCellKey,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
@@ -37,7 +37,7 @@ const TWIST_COUNTS_AVAILABLE = [2, 3, 4, 5, 6, 7, 8];
 // Maps the active drill mode to the matching Case Subset view
 const MODE_TO_SUBSET_VIEW = { corners: "corner", edges: "edge", flips: "flips", twists: "twists", parity: "parity", ltct: "ltct", t2c: "t2c" };
 const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
-const getMaps = (scheme, orientation) => orientMaps(SCHEMES[scheme] || SCHEMES.speffz, orientation);
+const getMaps = (scheme) => SCHEMES[scheme] || SCHEMES.speffz;
 const today = () => new Date().toISOString().slice(0, 10);
 
 function loadJSON(key, fallback) {
@@ -161,7 +161,7 @@ export default function App() {
     // --- Extra categories (flips / twists / parity / ltct / t2c): drill blddb algorithm sets ---
     if (NEW_CATEGORIES.includes(m)) {
       const recMap = categoryCacheRef.current[m];
-      const catMaps = getMaps(s.scheme, s.orientation);
+      const catMaps = getMaps(s.scheme);
       const clearCase = () => { targetRef.current = null; caseStartRef.current = null; caseStartedRef.current = false; caseStoppedRef.current = null; setPair(null); setHighlights({}); };
       if (!recMap) { clearCase(); return; }
       let keys = Object.keys(recMap);
@@ -198,7 +198,7 @@ export default function App() {
           : keys[Math.floor(getRandom() * keys.length)];
         const alg = recMap[kkey];
         if (!alg) continue;
-        const target = applyAlg(cur, orientAlg(alg, s.orientation));
+        const target = applyAlg(cur, alg);
         if (target !== cur) {
           targetRef.current = target;
           currentCaseKeyRef.current = `${s.scheme}:${m}:${kkey}`;
@@ -217,12 +217,10 @@ export default function App() {
           }
           const baseMaps = SCHEMES[s.scheme] || SCHEMES.speffz;
           setPair({ code: kkey, display: caseCodeToDisplay(kkey, m, baseMaps), type: m });
-          const g = orientPerm(s.orientation?.top || "white", s.orientation?.front || "green");
           const chars = kkey.split("");
           const charType = (i) => (m === "flips" ? "edge" : m === "twists" ? "corner" : m === "parity" ? (i < 2 ? "edge" : "corner") : "corner");
           const fFor = (i) => {
-            const canonicalIdx = codeCharToFacelet(chars[i], charType(i));
-            return canonicalIdx != null ? g[canonicalIdx] : null;
+            return codeCharToFacelet(chars[i], charType(i));
           };
           let greenSet = [], darkGreenSet = [], blueSet = [];
           if ((m === "ltct" || m === "t2c") && chars.length === 3) { greenSet = [fFor(0)]; darkGreenSet = [fFor(1)]; blueSet = [fFor(2)]; }
@@ -235,7 +233,7 @@ export default function App() {
       return;
     }
 
-    const maps = getMaps(s.scheme, s.orientation);
+    const maps = getMaps(s.scheme);
     const type = m === "corners" ? "corner" : "edge";
     const list = Object.keys(type === "corner" ? maps.corner : maps.edge);
     const buffer = type === "corner" ? s.cornerBuffer : s.edgeBuffer;
@@ -356,7 +354,8 @@ export default function App() {
     if (!f || f.length !== 54) return;
     rawFaceletsRef.current = f;
     if (!refFaceletsRef.current) refFaceletsRef.current = f;
-    onStateChanged(relativeState(refFaceletsRef.current, f));
+    const hardwareState = relativeState(refFaceletsRef.current, f);
+    onStateChanged(cubeStateToUserState(hardwareState, settingsRef.current.orientation));
   }, [onStateChanged]);
 
   const doMove = useCallback((move) => {
@@ -542,7 +541,10 @@ export default function App() {
     refFaceletsRef.current = null; // first facelets snapshot becomes the solved reference
     try {
       const info = await btConnect({
-        onMove: (m) => onStateChanged(applyMove(cubeStateRef.current, m)),
+        onMove: (m) => {
+          const userMove = cubeMoveToUserMove(m, settingsRef.current.orientation);
+          onStateChanged(applyMove(cubeStateRef.current, userMove));
+        },
         onFacelets: handleFacelets,
         onBattery: (b) => setBattery(b),
         onStatus: (s) => setCubeName(s),
@@ -828,7 +830,7 @@ export default function App() {
             pair={pair}
             pairText={pairText}
             buffer={(pair.type === "corners" || pair.type === "corner") ? settings.cornerBuffer : ((pair.type === "edges" || pair.type === "edge") ? settings.edgeBuffer : "")}
-            maps={getMaps(settings.scheme, settings.orientation)}
+            maps={getMaps(settings.scheme)}
             style={NEW_CATEGORIES.includes(pair.type) ? (settings.catStyle || "nightmare") : (pair.type === "corner" ? settings.cornerStyle : settings.edgeStyle)}
             setStyle={(v) => setSettings((s) => (NEW_CATEGORIES.includes(pair.type) ? { ...s, catStyle: v } : (pair.type === "corner" ? { ...s, cornerStyle: v } : { ...s, edgeStyle: v })))}
             onClose={() => setHintOpen(false)}
@@ -992,7 +994,7 @@ const STRIPES = "repeating-linear-gradient(45deg, rgba(255,255,255,0.28) 0 2px, 
 function SubsetModal({ settings, setSettings, initialView = "corner", onClose }) {
   const isMobile = useIsMobile();
   const scheme = settings.scheme;
-  const maps = getMaps(scheme, settings.orientation);
+  const maps = getMaps(scheme);
   const [view, setView] = useState(initialView); // corner | edge | flips | twists | ltct | t2c | parity
 
   const [catCasesMap, setCatCasesMap] = useState(null);

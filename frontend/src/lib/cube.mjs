@@ -424,6 +424,47 @@ export function orientMaps(maps = SCHEMES.speffz, orientation) {
 }
 
 const BASE_FACE_COLOR = { U: "white", D: "yellow", F: "green", B: "blue", R: "red", L: "orange" };
+const FACE_CENTER = { U: 4, R: 13, F: 22, D: 31, L: 40, B: 49 };
+
+// Smart cubes name faces in their fixed colour frame (white=U, red=R, green=F).
+// Convert that name to the notation seen by a user holding the selected top/front
+// orientation. For example: white/blue maps hardware R -> user L, while
+// yellow/red maps hardware R -> user F.
+export function cubeMoveToUserMove(move, orientation) {
+  const match = typeof move === "string" ? move.match(/^([URFDLB])('?|2)$/) : null;
+  if (!match) return move;
+  const top = orientation?.top || "white";
+  const front = orientation?.front || "green";
+  const rot = findRotation(top, front);
+  if (!rot) return move;
+  const [, hardwareFace, suffix] = match;
+  const worldVec = mvec(rot, COLOR_NORMAL[BASE_FACE_COLOR[hardwareFace]]);
+  return FACE_OF(worldVec) + suffix;
+}
+
+// The face symbols stored in a logical/user-frame state need the physical cube's
+// colours when rendered. This map is also the inverse colour relabelling used for
+// full facelet snapshots from cubes that provide them.
+export function userFaceToCubeFaceMap(orientation) {
+  const g = orientPerm(orientation?.top || "white", orientation?.front || "green");
+  const out = {};
+  for (const worldFace of FACE_ORDER) {
+    out[worldFace] = FACE_ORDER[Math.floor(g[FACE_CENTER[worldFace]] / 9)];
+  }
+  return out;
+}
+
+// Convert a complete state reported in the cube's fixed colour frame into the
+// same user-relative frame as cubeMoveToUserMove. Keeping all trainer state in
+// this frame makes target comparison independent of how the cube is held.
+export function cubeStateToUserState(state, orientation) {
+  if (!state || state.length !== 54) return state;
+  const g = orientPerm(orientation?.top || "white", orientation?.front || "green");
+  const userToCubeFace = userFaceToCubeFaceMap(orientation);
+  const cubeToUserFace = {};
+  for (const [userFace, cubeFace] of Object.entries(userToCubeFace)) cubeToUserFace[cubeFace] = userFace;
+  return FACELETS.map((_, worldIdx) => cubeToUserFace[state[g[worldIdx]]] || state[g[worldIdx]]).join("");
+}
 
 // Remap an algorithm string from world frame (user hands) to hardware frame for the given orientation.
 export function orientAlg(alg, orientation) {
@@ -668,6 +709,25 @@ export function runTests() {
   const seq = "R U R' U' F2 D";
   check("relative(B, B·seq) == solved·seq", relativeState(B, applyAlg(B, seq)) === applyAlg(SOLVED, seq));
   check("roundtrip cubies", (() => { const c = applyAlg(SOLVED, "R U R' F D2 L'"); return relativeState(SOLVED, c) === c; })());
+
+  // Smart-cube compatibility layer: hardware face names become user-relative
+  // notation and full snapshots produce exactly the same logical state.
+  check("white/blue: hardware R is user L", cubeMoveToUserMove("R", { top: "white", front: "blue" }) === "L");
+  check("yellow/red: hardware R is user F", cubeMoveToUserMove("R", { top: "yellow", front: "red" }) === "F");
+  for (const top of CUBE_COLORS) {
+    for (const front of CUBE_COLORS) {
+      if (front === top || front === OPPOSITE_COLOR[top]) continue;
+      const orientation = { top, front };
+      check(`${top}/${front}: solved snapshot stays solved`, cubeStateToUserState(SOLVED, orientation) === SOLVED);
+      for (const hardwareMove of ["U", "R", "F", "D", "L", "B", "R'", "F2"]) {
+        const userMove = cubeMoveToUserMove(hardwareMove, orientation);
+        check(
+          `${top}/${front}: snapshot ${hardwareMove} agrees with ${userMove}`,
+          cubeStateToUserState(applyMove(SOLVED, hardwareMove), orientation) === applyMove(SOLVED, userMove),
+        );
+      }
+    }
+  }
 
   console.log(`\n${pass} passed, ${fail} failed`);
   return fail === 0;
