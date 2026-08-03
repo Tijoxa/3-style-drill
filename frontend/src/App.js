@@ -1056,7 +1056,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
       return !(cellData && cellData.validCells && cellData.validCells.has(cellKey));
     }
     if (isParity) {
-      const cellKey = `${rItem}:${cItem}`;
+      const cellKey = `${rItem.toUpperCase()}:${cItem.toUpperCase()}`;
       return !(cellData && cellData.validCells && cellData.validCells.has(cellKey));
     }
     return false;
@@ -1073,7 +1073,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   }, [isParity]);
 
   const cellKeyFor = useCallback((rItem, cItem) => {
-    if (isParity) return `${rItem}:${cItem}`;
+    if (isParity) return `${rItem.toUpperCase()}:${cItem.toUpperCase()}`;
     if (isLtct || isT2c) return [rItem, cItem].sort().join(":");
     return `${rItem}:${cItem}`;
   }, [isParity, isLtct, isT2c]);
