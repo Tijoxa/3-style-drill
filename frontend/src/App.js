@@ -20,18 +20,22 @@ import CubeNet from "./components/CubeNet";
 
 const STATS_KEY = "bld3style_stats_v1";
 const SETTINGS_KEY = "bld3style_settings_v1";
-const NEW_CATEGORIES = ["flips", "twists", "parity", "ltct"];
+const SELECTED_MODES_KEY = "bld3style_selected_modes_v1";
+const NEW_CATEGORIES = ["flips", "twists", "parity", "ltct", "t2c"];
+const ALL_CATEGORIES = ["corners", "edges", "flips", "twists", "parity", "ltct", "t2c"];
 const CATEGORY_META = {
+  corners: { label: "Corners", short: "CORNERS" },
+  edges: { label: "Edges", short: "EDGES" },
   flips: { label: "Edge Flips", short: "EDGE FLIPS", url: "https://v2.blddb.net/flips" },
   twists: { label: "Corner Twists", short: "CORNER TWISTS", url: "https://v2.blddb.net/twists" },
   parity: { label: "Parity", short: "PARITY", url: "https://v2.blddb.net/parity" },
-  ltct: { label: "LTCT & T2C", short: "LTCT / T2C", url: "https://v2.blddb.net/ltct" },
+  ltct: { label: "LTCT", short: "LTCT", url: "https://v2.blddb.net/ltct" },
+  t2c: { label: "T2C", short: "T2C", url: "https://v2.blddb.net/ltct" },
 };
-const LTCT_MODES_AVAILABLE = [["ltct", "LTCT"], ["t2c", "T2C"]];
 const FLIP_COUNTS_AVAILABLE = [2];
 const TWIST_COUNTS_AVAILABLE = [2, 3, 4, 5, 6, 7, 8];
-// Maps the active drill mode to the matching Case Subset view (parity/ltct have no subset config → corners).
-const MODE_TO_SUBSET_VIEW = { corners: "corner", edges: "edge", flips: "flips", twists: "twists", parity: "corner", ltct: "ltct" };
+// Maps the active drill mode to the matching Case Subset view
+const MODE_TO_SUBSET_VIEW = { corners: "corner", edges: "edge", flips: "flips", twists: "twists", parity: "parity", ltct: "ltct", t2c: "t2c" };
 const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
 const getMaps = (scheme, orientation) => orientMaps(SCHEMES[scheme] || SCHEMES.speffz, orientation);
 const today = () => new Date().toISOString().slice(0, 10);
@@ -60,11 +64,11 @@ function beep(freq, ok) {
   } catch { }
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], ltctModes: ["ltct", "t2c"], orientation: { top: "white", front: "green" }, distribution: "uniform", useSeed: false, seed: 42, srTimeoutMs: 10000, disabledCases: {} };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], orientation: { top: "white", front: "green" }, distribution: "uniform", useSeed: false, seed: 42, srTimeoutMs: 10000, disabledCases: {} };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 
 export default function App() {
-  const [mode, setMode] = useState("corners");
+  const [selectedModes, setSelectedModes] = useState(() => loadJSON(SELECTED_MODES_KEY, ["corners"]));
   const isMobile = useIsMobile();
   const [settings, setSettings] = useState(() => ({ ...defaultSettings, ...loadJSON(SETTINGS_KEY, {}) }));
   const [pair, setPair] = useState(null);
@@ -93,7 +97,7 @@ export default function App() {
   const caseStartedRef = useRef(false);
   const caseStoppedRef = useRef(null);
   const noMoveTimeoutRef = useRef(null);
-  const modeRef = useRef(mode);
+  const selectedModesRef = useRef(selectedModes);
   const settingsRef = useRef(settings);
   const busyRef = useRef(false);
   const refFaceletsRef = useRef(null);   // cube facelets when last declared "solved"
@@ -108,11 +112,24 @@ export default function App() {
   const isTimerPausedRef = useRef(isTimerPaused);
   const prngRef = useRef(null);
 
+  const toggleMode = useCallback((cat) => {
+    setSelectedModes((prev) => {
+      if (prev.includes(cat)) {
+        if (prev.length === 1) {
+          toast.info("Select at least one algorithm set to train on.");
+          return prev;
+        }
+        return prev.filter((c) => c !== cat);
+      }
+      return [...prev, cat];
+    });
+  }, []);
+
   const getRandom = useCallback(() => {
     const s = settingsRef.current;
     if (s.distribution !== "spaced" && s.useSeed) {
       const seedVal = s.seed ?? 42;
-      const seedKey = `${s.useSeed}:${seedVal}:${modeRef.current}:${s.scheme}`;
+      const seedKey = `${s.useSeed}:${seedVal}:${(selectedModesRef.current || []).join(",")}:${s.scheme}`;
       if (!prngRef.current || prngRef.current.key !== seedKey) {
         const fn = createPRNG(seedVal);
         fn.key = seedKey;
@@ -123,16 +140,20 @@ export default function App() {
     return Math.random();
   }, []);
   useEffect(() => { isTimerPausedRef.current = isTimerPaused; }, [isTimerPaused]);
-  useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { selectedModesRef.current = selectedModes; localStorage.setItem(SELECTED_MODES_KEY, JSON.stringify(selectedModes)); }, [selectedModes]);
   useEffect(() => { btStatusRef.current = btStatus; }, [btStatus]);
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
 
   const buildCase = useCallback((startImmediately = false) => {
     if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
-    const m = modeRef.current;
     const s = settingsRef.current;
+    const active = selectedModesRef.current;
+    if (!active || !active.length) return;
 
-    // --- Extra categories (flips / twists / parity / ltct&t2c): drill blddb algorithm sets ---
+    // Randomly pick one category from active checked modes
+    const m = active[Math.floor(getRandom() * active.length)];
+
+    // --- Extra categories (flips / twists / parity / ltct / t2c): drill blddb algorithm sets ---
     if (NEW_CATEGORIES.includes(m)) {
       const recMap = categoryCacheRef.current[m];
       const catMaps = getMaps(s.scheme, s.orientation);
@@ -141,7 +162,8 @@ export default function App() {
       let keys = Object.keys(recMap);
       if (m === "flips") keys = keys.filter((k) => (s.flipCounts || [2]).includes(k.length));
       else if (m === "twists") keys = keys.filter((k) => (s.twistCounts || [2]).includes(k.length));
-      else if (m === "ltct") { const modes = s.ltctModes || ["ltct", "t2c"]; keys = keys.filter((k) => modes.includes(ltctCaseKind(k))); }
+      else if (m === "ltct") keys = keys.filter((k) => ltctCaseKind(k) === "ltct");
+      else if (m === "t2c") keys = keys.filter((k) => ltctCaseKind(k) === "t2c");
       if (!keys.length) { clearCase(); return; }
       const cur = cubeStateRef.current;
       const spaced = s.distribution === "spaced";
@@ -170,9 +192,6 @@ export default function App() {
           }
           const baseMaps = SCHEMES[s.scheme] || SCHEMES.speffz;
           setPair({ code: kkey, display: caseCodeToDisplay(kkey, m, baseMaps), type: m });
-          // Highlight the letter stickers (one face per piece): flips/twists = all green;
-          // ltct/t2c = first letter green, second letter dark green + bracketed (twisted) piece blue; parity = 1st edge &
-          // 1st corner blue, the other two green.
           const g = orientPerm(s.orientation?.top || "white", s.orientation?.front || "green");
           const chars = kkey.split("");
           const charType = (i) => (m === "flips" ? "edge" : m === "twists" ? "corner" : m === "parity" ? (i < 2 ? "edge" : "corner") : "corner");
@@ -181,7 +200,7 @@ export default function App() {
             return canonicalIdx != null ? g[canonicalIdx] : null;
           };
           let greenSet = [], darkGreenSet = [], blueSet = [];
-          if (m === "ltct" && chars.length === 3) { greenSet = [fFor(0)]; darkGreenSet = [fFor(1)]; blueSet = [fFor(2)]; }
+          if ((m === "ltct" || m === "t2c") && chars.length === 3) { greenSet = [fFor(0)]; darkGreenSet = [fFor(1)]; blueSet = [fFor(2)]; }
           else if (m === "parity" && chars.length === 4) { blueSet = [fFor(0), fFor(2)]; greenSet = [fFor(1), fFor(3)]; }
           else { greenSet = chars.map((_, i) => fFor(i)); }
           setHighlights({ greenSet: greenSet.filter((x) => x != null), darkGreenSet: darkGreenSet.filter((x) => x != null), blueSet: blueSet.filter((x) => x != null) });
@@ -402,26 +421,25 @@ export default function App() {
     }, 250);
   }, [drawer, hintOpen, subsetOpen, macPrompt, onSuccess, startTiming, resetAndStop]);
 
-  // init first case + rebuild on mode / scheme / buffer change
+  // init first case + rebuild on selectedModes / scheme / buffer change
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { buildCase(); }, [mode, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts, settings.ltctModes]);
+  useEffect(() => { buildCase(); }, [selectedModes, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts]);
 
-  // Load the algorithm set for extra categories (flips/twists/parity/ltct), then build a case.
+  // Load the algorithm set for extra categories (flips/twists/parity/ltct/t2c), then build a case.
   useEffect(() => {
-    if (!NEW_CATEGORIES.includes(mode)) return;
-    if (categoryCacheRef.current[mode]) { buildCase(); return; }
+    const needed = selectedModes.filter((m) => NEW_CATEGORIES.includes(m) && !categoryCacheRef.current[m]);
+    if (!needed.length) { buildCase(); return; }
     let cancelled = false;
     setCatState({ loading: true, error: null });
-    loadCategoryCases(mode)
-      .then((rec) => {
+    Promise.all(needed.map((c) => loadCategoryCases(c).then((rec) => { categoryCacheRef.current[c] = rec; })))
+      .then(() => {
         if (cancelled) return;
-        categoryCacheRef.current[mode] = rec;
         setCatState({ loading: false, error: null });
         buildCase();
       })
       .catch((e) => { if (!cancelled) setCatState({ loading: false, error: e.message || String(e) }); });
     return () => { cancelled = true; };
-  }, [mode, buildCase]);
+  }, [selectedModes, buildCase]);
 
   // test/debug hook: lets automated tests simulate execution / cube facelets without Bluetooth
   useEffect(() => {
@@ -554,24 +572,58 @@ export default function App() {
         </div>
 
         {/* mode switcher */}
-        <div data-testid="mode-switcher" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, overflow: "visible", background: "var(--surface)", ...(isMobile ? { order: 3, flexBasis: "100%", justifyContent: "center" } : {}) }}>
-          {["corners", "edges"].map((m, idx) => (
-            <button
-              key={m}
-              data-testid={`mode-${m}`}
-              onClick={() => setMode(m)}
-              className="overline font-head"
-              style={{
-                padding: isMobile ? "10px 0" : "8px 18px", flex: isMobile ? 1 : "none", fontSize: 13, letterSpacing: "0.15em", cursor: "pointer",
-                background: mode === m ? "var(--surface-2)" : "transparent",
-                color: mode === m ? "#fff" : "#7a7a7a",
-                border: "none",
-                borderRadius: mode === m && idx === 0 ? "9px 0 0 9px" : "0px",
-                boxShadow: mode === m ? "inset 0 0 0 1px var(--active)" : "none",
-              }}
-            >{m}</button>
-          ))}
-          <ModeDropdown mode={mode} setMode={setMode} isMobile={isMobile} />
+        <div
+          data-testid="mode-switcher"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 4,
+            flexWrap: "wrap",
+            border: "1px solid var(--line)",
+            borderRadius: 10,
+            padding: isMobile ? "6px 8px" : "4px 8px",
+            background: "var(--surface)",
+            ...(isMobile ? { order: 3, flexBasis: "100%", justifyContent: "center" } : {})
+          }}
+        >
+          <span className="overline font-head" style={{ fontSize: 10, color: "#7a7a7a", marginRight: 4, letterSpacing: "0.1em", display: isMobile ? "none" : "inline-block" }}>
+            TRAIN ON:
+          </span>
+          {ALL_CATEGORIES.map((c) => {
+            const checked = selectedModes.includes(c);
+            return (
+              <label
+                key={c}
+                data-testid={`mode-${c}`}
+                data-checked={checked}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: isMobile ? "6px 8px" : "5px 10px",
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  fontFamily: "'JetBrains Mono', monospace",
+                  cursor: "pointer",
+                  userSelect: "none",
+                  transition: "all 0.15s ease",
+                  background: checked ? "var(--surface-2)" : "transparent",
+                  color: checked ? "#fff" : "#7a7a7a",
+                  border: checked ? "1px solid var(--active)" : "1px solid transparent",
+                  boxShadow: checked ? "0 0 8px rgba(147, 197, 253, 0.12)" : "none",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleMode(c)}
+                  style={{ accentColor: "var(--active)", cursor: "pointer", width: 13, height: 13 }}
+                />
+                <span>{CATEGORY_META[c]?.short || c.toUpperCase()}</span>
+              </label>
+            );
+          })}
         </div>
 
         <div style={{ display: "flex", gap: 8, order: isMobile ? 2 : 0 }}>
@@ -583,9 +635,9 @@ export default function App() {
       {/* Center */}
       <main data-testid="trainer-main" onClick={handleScreenTap} style={{ position: "relative", zIndex: 1, flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 24, padding: 20, cursor: "pointer" }}>
         <div className="overline" style={{ color: "#52525B", fontSize: 12 }}>
-          {NEW_CATEGORIES.includes(mode)
-            ? `${CATEGORY_META[mode].short} · ${(SCHEMES[settings.scheme] || SCHEMES.speffz).name}`
-            : `${mode === "corners" ? "CORNER 3-STYLE" : "EDGE 3-STYLE"} · BUFFER ${(mode === "corners" ? settings.cornerBuffer : settings.edgeBuffer).toUpperCase()} · ${(SCHEMES[settings.scheme] || SCHEMES.speffz).name}`}
+          {pair?.type && NEW_CATEGORIES.includes(pair.type)
+            ? `${CATEGORY_META[pair.type]?.short || pair.type.toUpperCase()} · ${(SCHEMES[settings.scheme] || SCHEMES.speffz).name}`
+            : `${(pair?.type || "corners") === "corners" ? "CORNER 3-STYLE" : "EDGE 3-STYLE"} · BUFFER ${((pair?.type || "corners") === "corners" ? settings.cornerBuffer : settings.edgeBuffer).toUpperCase()} · ${(SCHEMES[settings.scheme] || SCHEMES.speffz).name}`}
         </div>
 
         <AnimatePresence mode="popLayout">
@@ -704,10 +756,10 @@ export default function App() {
           <HintModal
             pair={pair}
             pairText={pairText}
-            buffer={mode === "corners" ? settings.cornerBuffer : (mode === "edges" ? settings.edgeBuffer : "")}
+            buffer={(pair.type === "corners" || pair.type === "corner") ? settings.cornerBuffer : ((pair.type === "edges" || pair.type === "edge") ? settings.edgeBuffer : "")}
             maps={getMaps(settings.scheme, settings.orientation)}
-            style={NEW_CATEGORIES.includes(mode) ? (settings.catStyle || "nightmare") : (pair.type === "corner" ? settings.cornerStyle : settings.edgeStyle)}
-            setStyle={(v) => setSettings((s) => (NEW_CATEGORIES.includes(mode) ? { ...s, catStyle: v } : (pair.type === "corner" ? { ...s, cornerStyle: v } : { ...s, edgeStyle: v })))}
+            style={NEW_CATEGORIES.includes(pair.type) ? (settings.catStyle || "nightmare") : (pair.type === "corner" ? settings.cornerStyle : settings.edgeStyle)}
+            setStyle={(v) => setSettings((s) => (NEW_CATEGORIES.includes(pair.type) ? { ...s, catStyle: v } : (pair.type === "corner" ? { ...s, cornerStyle: v } : { ...s, edgeStyle: v })))}
             onClose={() => setHintOpen(false)}
           />
         )}
@@ -716,7 +768,7 @@ export default function App() {
       {/* Case subset selector grid */}
       <AnimatePresence>
         {subsetOpen && (
-          <SubsetModal settings={settings} setSettings={setSettings} initialView={MODE_TO_SUBSET_VIEW[mode] || "corner"} onClose={() => setSubsetOpen(false)} />
+          <SubsetModal settings={settings} setSettings={setSettings} initialView={MODE_TO_SUBSET_VIEW[selectedModes[0]] || "corner"} onClose={() => setSubsetOpen(false)} />
         )}
       </AnimatePresence>
     </div>
@@ -856,7 +908,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   const maps = getMaps(scheme, settings.orientation);
   const [view, setView] = useState(initialView); // corner | edge | flips | twists (synced with active drill mode on open)
   const type = view === "edge" ? "edge" : "corner";
-  const isPieceView = view === "flips" || view === "twists" || view === "ltct";
+  const isPieceView = view === "flips" || view === "twists" || view === "parity" || view === "ltct" || view === "t2c";
   const buffer = type === "corner" ? settings.cornerBuffer : settings.edgeBuffer;
   const letters = useMemo(
     () => Object.keys(type === "corner" ? maps.corner : maps.edge).sort(),
@@ -1121,25 +1173,29 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
             </div>
           )}
           {view === "ltct" && (
-            <div data-testid="ltct-selectors" style={{ marginTop: 18 }}>
-              <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA", display: "block", marginBottom: 6 }}>Case types</span>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                {LTCT_MODES_AVAILABLE.map(([v, l]) => {
-                  const on = (settings.ltctModes || ["ltct", "t2c"]).includes(v);
-                  return (
-                    <button key={v} data-testid={`ltct-mode-${v}`} data-active={on} onClick={() => toggleLtctMode(v)} className="font-mono"
-                      style={{
-                        minWidth: 66, height: 34, padding: "0 14px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: 700, letterSpacing: "0.04em",
-                        border: on ? "1px solid var(--active)" : "1px solid var(--line)",
-                        background: on ? "var(--success)" : "var(--surface-2)", color: on ? "#04120a" : "#7a7a7a"
-                      }}>
-                      {l}
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="font-mono" style={{ fontSize: 11.5, color: "#52525B", marginTop: 14, lineHeight: 1.6 }}>
-                <b style={{ color: "#A1A1AA" }}>LTCT</b> = C-buffer cycle with a twisted last target (<span style={{ color: "#A1A1AA" }}>CB[S]</span>). <b style={{ color: "#A1A1AA" }}>T2C</b> = twisted buffer with two swapped corners (<span style={{ color: "#A1A1AA" }}>AU[J]</span>). Select either, both, or neither.
+            <div data-testid="ltct-placeholder" style={{ marginTop: 18, padding: "24px 16px", border: "1px dashed var(--line)", borderRadius: 10, background: "var(--surface-2)", textAlign: "center" }}>
+              <span className="overline font-head" style={{ fontSize: 11, color: "var(--active)", display: "block", marginBottom: 6, letterSpacing: "0.1em" }}>subset placeholder</span>
+              <h3 className="font-head" style={{ fontSize: 16, color: "#fff", margin: "0 0 6px 0", letterSpacing: "0.02em" }}>LTCT Subset Configuration</h3>
+              <p className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", margin: 0, lineHeight: 1.6 }}>
+                Placeholder for LTCT cases (C-buffer cycle with a twisted last target). Detailed subset configuration refineable soon.
+              </p>
+            </div>
+          )}
+          {view === "t2c" && (
+            <div data-testid="t2c-placeholder" style={{ marginTop: 18, padding: "24px 16px", border: "1px dashed var(--line)", borderRadius: 10, background: "var(--surface-2)", textAlign: "center" }}>
+              <span className="overline font-head" style={{ fontSize: 11, color: "var(--active)", display: "block", marginBottom: 6, letterSpacing: "0.1em" }}>subset placeholder</span>
+              <h3 className="font-head" style={{ fontSize: 16, color: "#fff", margin: "0 0 6px 0", letterSpacing: "0.02em" }}>T2C Subset Configuration</h3>
+              <p className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", margin: 0, lineHeight: 1.6 }}>
+                Placeholder for T2C cases (twisted buffer with two swapped corners). Detailed subset configuration refineable soon.
+              </p>
+            </div>
+          )}
+          {view === "parity" && (
+            <div data-testid="parity-placeholder" style={{ marginTop: 18, padding: "24px 16px", border: "1px dashed var(--line)", borderRadius: 10, background: "var(--surface-2)", textAlign: "center" }}>
+              <span className="overline font-head" style={{ fontSize: 11, color: "var(--active)", display: "block", marginBottom: 6, letterSpacing: "0.1em" }}>subset placeholder</span>
+              <h3 className="font-head" style={{ fontSize: 16, color: "#fff", margin: "0 0 6px 0", letterSpacing: "0.02em" }}>Parity Subset Configuration</h3>
+              <p className="font-mono" style={{ fontSize: 12, color: "#A1A1AA", margin: 0, lineHeight: 1.6 }}>
+                Placeholder for Parity cases (swap 1 edge & 1 corner pair). Detailed subset configuration refineable soon.
               </p>
             </div>
           )}
@@ -1321,9 +1377,16 @@ function SubsetViewSwitch({ view, setView }) {
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, []);
-  const MORE = [["flips", "Edge flips", "EDGE FLIPS"], ["twists", "Corner twists", "CORNER TWISTS"], ["ltct", "LTCT & T2C", "LTCT & T2C"]];
-  const moreActive = view === "flips" || view === "twists" || view === "ltct";
-  const moreLabel = moreActive ? MORE.find((m) => m[0] === view)[2] : "MORE";
+  const MORE = [
+    ["flips", "Edge flips", "EDGE FLIPS"],
+    ["twists", "Corner twists", "CORNER TWISTS"],
+    ["parity", "Parity", "PARITY"],
+    ["ltct", "LTCT", "LTCT"],
+    ["t2c", "T2C", "T2C"],
+  ];
+  const moreActive = MORE.some((m) => m[0] === view);
+  const activeItem = MORE.find((m) => m[0] === view);
+  const moreLabel = moreActive && activeItem ? activeItem[2] : "MORE";
   return (
     <div data-testid="subset-view-switch" style={{ display: "flex", border: "1px solid var(--line)", borderRadius: 10, background: "var(--surface)", position: "relative" }}>
       {[["corner", "Corners"], ["edge", "Edges"]].map(([v, l], idx) => (
@@ -1362,52 +1425,7 @@ function SubsetViewSwitch({ view, setView }) {
   );
 }
 
-function ModeDropdown({ mode, setMode, isMobile }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  useEffect(() => {
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, []);
-  const active = NEW_CATEGORIES.includes(mode);
-  return (
-    <div ref={ref} style={{ position: "relative", display: "flex", flex: isMobile ? 1 : "none" }}>
-      <button
-        data-testid="mode-more-btn"
-        onClick={() => setOpen((v) => !v)}
-        className="overline font-head"
-        style={{
-          padding: isMobile ? "10px 8px" : "8px 14px", flex: isMobile ? 1 : "none", width: isMobile ? "100%" : "auto",
-          display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 13, letterSpacing: "0.12em", cursor: "pointer", whiteSpace: "nowrap",
-          background: active ? "var(--surface-2)" : "transparent", color: active ? "#fff" : "#7a7a7a",
-          border: "none", borderRadius: "0 9px 9px 0",
-          boxShadow: active ? "inset 0 0 0 1px var(--active)" : "none",
-        }}
-      >
-        {active ? CATEGORY_META[mode].short : "MORE"} <ChevronDown size={14} />
-      </button>
-      {open && (
-        <div data-testid="mode-more-menu" className="theme-scroll" style={{ position: "absolute", top: "calc(100% + 6px)", right: 0, zIndex: 80, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 6, minWidth: 190, boxShadow: "0 8px 24px rgba(0,0,0,0.45)" }}>
-          {NEW_CATEGORIES.map((c) => (
-            <button
-              key={c}
-              data-testid={`mode-${c}`}
-              onClick={() => { setMode(c); setOpen(false); }}
-              className="font-mono"
-              style={{
-                display: "block", width: "100%", textAlign: "left", padding: "9px 10px", fontSize: 13, cursor: "pointer", border: "none", borderRadius: 8,
-                background: mode === c ? "var(--surface)" : "transparent", color: mode === c ? "#fff" : "#A1A1AA"
-              }}
-            >
-              {CATEGORY_META[c].label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
+
 
 function CountRow({ label, testidPrefix, available, selected, onToggle }) {
   return (
