@@ -216,8 +216,8 @@ export function caseCodeToDisplay(codeKey, category, maps = SCHEMES.speffz) {
   const letters = codeKey.split("").map((ch, i) => codeToSchemeLetter(ch, typeFn(i), maps));
   // LTCT / T2C convention: two plain letters then the twisted piece in brackets, e.g. CB[S], AU[J].
   if ((category === "ltct" || category === "t2c") && letters.length === 3) return `${letters[0]}${letters[1]}[${letters[2]}]`;
-  // Parity: 2 edge letters + 2 corner letters, separated by a space, e.g. "AB CD".
-  if (category === "parity" && letters.length === 4) return `${letters[0]}${letters[1]} ${letters[2]}${letters[3]}`;
+  // Parity: 2 edge letters + 2 corner letters, separated by an en-space, e.g. "AB CD".
+  if (category === "parity" && letters.length === 4) return `${letters[0]}${letters[1]}\u2002${letters[2]}${letters[3]}`;
   return letters.join("");
 }
 
