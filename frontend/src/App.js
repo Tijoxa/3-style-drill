@@ -66,6 +66,7 @@ function beep(freq, ok) {
 
 const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], orientation: { top: "white", front: "green" }, distribution: "uniform", useSeed: false, seed: 42, srTimeoutMs: 10000, disabledCases: {} };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
+const ALLOWED_MOVE_KEYS = new Set(["r", "f", "u", "d", "l", "b", "shift"]);
 
 export default function App() {
   const [selectedModes, setSelectedModes] = useState(() => loadJSON(SELECTED_MODES_KEY, ["corners"]));
@@ -111,6 +112,7 @@ export default function App() {
   const [catState, setCatState] = useState({ loading: false, error: null });
   const isTimerPausedRef = useRef(isTimerPaused);
   const prngRef = useRef(null);
+  const pressedKeysRef = useRef(new Set());
 
   const toggleMode = useCallback((cat) => {
     setSelectedModes((prev) => {
@@ -482,31 +484,54 @@ export default function App() {
 
   // keyboard controls
   useEffect(() => {
-    const handler = (e) => {
+    const handleKeyDown = (e) => {
+      const k = e.key.toLowerCase();
+      pressedKeysRef.current.add(k);
+
       if (drawer || subsetOpen || macPrompt) return;
-      const k = e.key;
+
       // While the Hint panel is open, still let Space validate the case (it auto-closes the
       // hint via onSuccess) and Backspace skip; other trainer keys stay disabled so the modal
       // keeps its own behavior.
       if (hintOpen) {
-        if (k === " ") { e.preventDefault(); validate(); return; }
-        if (k === "Backspace") { e.preventDefault(); setHintOpen(false); skipCase(); return; }
+        if (e.key === " ") { e.preventDefault(); validate(); return; }
+        if (e.key === "Backspace") { e.preventDefault(); setHintOpen(false); skipCase(); return; }
         return;
       }
-      if (k === "Backspace") { e.preventDefault(); skipCase(); return; }
-      if (k === " ") { e.preventDefault(); validate(); return; }
-      if (k === "Escape") { e.preventDefault(); resetAndStop(); return; }
-      if (k.toLowerCase() === "h") { e.preventDefault(); setHintOpen(true); return; }
+      if (e.key === "Backspace") { e.preventDefault(); skipCase(); return; }
+      if (e.key === " ") { e.preventDefault(); validate(); return; }
+      if (e.key === "Escape") { e.preventDefault(); resetAndStop(); return; }
+      if (k === "h") { e.preventDefault(); setHintOpen(true); return; }
+
       const map = { u: "U", r: "R", f: "F", d: "D", l: "L", b: "B" };
-      const face = map[k.toLowerCase()];
+      const face = map[k];
       if (face) {
         if (!settings.showManual) return;
+        if (e.ctrlKey || e.altKey || e.metaKey) return;
+        for (const pressedKey of pressedKeysRef.current) {
+          if (!ALLOWED_MOVE_KEYS.has(pressedKey)) return;
+        }
         e.preventDefault();
         doMove(e.shiftKey ? face + "'" : face);
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+
+    const handleKeyUp = (e) => {
+      pressedKeysRef.current.delete(e.key.toLowerCase());
+    };
+
+    const handleBlur = () => {
+      pressedKeysRef.current.clear();
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+    };
   }, [doMove, skipCase, validate, resetAndStop, drawer, hintOpen, subsetOpen, macPrompt, settings.showManual]);
 
   const handleConnect = useCallback(async () => {
