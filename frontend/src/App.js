@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import {
   SOLVED, applyMove, applyAlg, scramble, apply3Cycle, letterPieceId, relativeState, SCHEMES,
-  orientMaps, orientAlg, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay, ltctCaseKind,
+  orientMaps, orientAlg, orientPerm, CUBE_COLORS, COLOR_LABEL, OPPOSITE_COLOR, caseCodeToDisplay, ltctCaseKind,
   codeCharToFacelet, caseKeyToPositions,
 } from "./lib/cube.mjs";
 import { connect as btConnect, disconnect as btDisconnect, isBluetoothSupported } from "./lib/smartcube";
@@ -168,13 +168,18 @@ export default function App() {
             caseStartedRef.current = false;
             caseStartRef.current = null;
           }
-          setPair({ code: kkey, display: caseCodeToDisplay(kkey, m, catMaps), type: m });
+          const baseMaps = SCHEMES[s.scheme] || SCHEMES.speffz;
+          setPair({ code: kkey, display: caseCodeToDisplay(kkey, m, baseMaps), type: m });
           // Highlight the letter stickers (one face per piece): flips/twists = all green;
           // ltct/t2c = first two green + bracketed (twisted) piece blue; parity = 1st edge &
           // 1st corner blue, the other two green.
+          const g = orientPerm(s.orientation?.top || "white", s.orientation?.front || "green");
           const chars = kkey.split("");
           const charType = (i) => (m === "flips" ? "edge" : m === "twists" ? "corner" : m === "parity" ? (i < 2 ? "edge" : "corner") : "corner");
-          const fFor = (i) => codeCharToFacelet(chars[i], charType(i));
+          const fFor = (i) => {
+            const canonicalIdx = codeCharToFacelet(chars[i], charType(i));
+            return canonicalIdx != null ? g[canonicalIdx] : null;
+          };
           let greenSet = [], blueSet = [];
           if (m === "ltct" && chars.length === 3) { greenSet = [fFor(0), fFor(1)]; blueSet = [fFor(2)]; }
           else if (m === "parity" && chars.length === 4) { blueSet = [fFor(0), fFor(2)]; greenSet = [fFor(1), fFor(3)]; }
