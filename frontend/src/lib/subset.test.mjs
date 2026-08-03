@@ -5,9 +5,9 @@ import { loadCategoryCases } from "./blddb.js";
 test("getCaseCellKey extracts cell keys for T2C, LTCT, and Parity", async () => {
   const maps = SCHEMES.speffz;
 
-  // T2C sample: "DAM" (blddb key for DA[M])
+  // T2C sample: "DAM" (blddb key for DA[G] in Speffz)
   const t2cCell = getCaseCellKey("DAM", "t2c", maps);
-  expect(t2cCell).toBe("A:D"); // directed pair A:D
+  expect(t2cCell).toBe("A:D:G"); // directed pair A:D with buffer twist G
 
   // LTCT sample: "JAE" (blddb key for CD[E], buffer C)
   const ltctCell = getCaseCellKey("JAE", "ltct", maps);
@@ -32,7 +32,7 @@ test("T2C dataset valid cells and holes", async () => {
   });
 
   expect(t2cCasesCount).toBe(126);
-  expect(validCells.size).toBe(63); // 63 valid cells (2 algs per cell)
+  expect(validCells.size).toBe(126); // 126 valid cells (1 alg per cell)
 });
 
 test("LTCT dataset valid cells and holes", async () => {
