@@ -1059,10 +1059,16 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
         return false;
       });
     }
-    if (isParity) return edgeLetters; // Rows are 1st letter (Edge)
+    if (isLtct) return cornerLetters;
+    if (isParity) {
+      if (!cellData || !cellData.validCells) return edgeLetters;
+      return edgeLetters.filter((r) => {
+        return cornerLetters.some((c) => cellData.validCells.has(`${r.toUpperCase()}:${c.toUpperCase()}`));
+      });
+    }
     if (view === "edge") return edgeLetters;
     return cornerLetters;
-  }, [isT2c, cellData, t2cBufferStickers, isParity, view, edgeLetters, cornerLetters]);
+  }, [isT2c, isLtct, isParity, cellData, t2cBufferStickers, view, cornerLetters, edgeLetters]);
 
   const colLetters = useMemo(() => {
     if (isParity) return cornerLetters; // Cols are 3rd letter (Corner)
