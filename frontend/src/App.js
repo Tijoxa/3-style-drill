@@ -1316,7 +1316,7 @@ function SubsetModal({ settings, setSettings, initialView = "corner", onClose })
   ] : [
     ["enabled", "Enabled"],
     ["disabled", "Disabled"],
-    ["impossible", "Impossible (no alg)"],
+    ["impossible", "Impossible"],
   ];
 
   return createPortal(
