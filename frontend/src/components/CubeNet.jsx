@@ -29,10 +29,12 @@ export default function CubeNet({ state, highlights = {}, orientation }) {
   const mapSlots = (arr) => (Array.isArray(arr) ? arr.map((h) => gInv[h]).filter((x) => x != null) : []);
   const extraSlots = mapSlots(highlights.set);        // legacy green set
   const greenSlots = mapSlots(highlights.greenSet);   // green (correct target letters)
+  const darkGreenSlots = mapSlots(highlights.darkGreenSet); // darker green (second letter in LTCT/T2C)
   const blueSlots = mapSlots(highlights.blueSet);     // blue (buffer / bracketed twisted piece)
   const greenSet = new Set([t1Slot, t2Slot, ...extraSlots, ...greenSlots].filter((x) => x != null));
+  const darkGreenSet = new Set(darkGreenSlots.filter((x) => x != null));
   const blueSet = new Set([bufferSlot, ...blueSlots].filter((x) => x != null));
-  const active = new Set([...greenSet, ...blueSet]);
+  const active = new Set([...greenSet, ...darkGreenSet, ...blueSet]);
   const hasHighlight = active.size > 0;
 
   const cells = [];
@@ -41,6 +43,7 @@ export default function CubeNet({ state, highlights = {}, orientation }) {
     const color = COLORS[state[g[i]]] || "#333";
     const isBlue = blueSet.has(i);
     const isGreen = greenSet.has(i);
+    const isDarkGreen = darkGreenSet.has(i);
     const dim = hasHighlight && !active.has(i);
     cells.push(
       <div
@@ -55,8 +58,10 @@ export default function CubeNet({ state, highlights = {}, orientation }) {
           boxShadow: isBlue
             ? "0 0 0 2px #007AFF, 0 0 8px #007AFF"
             : isGreen
-            ? "0 0 0 2px #39FF14, 0 0 8px #39FF14"
-            : "inset 0 0 0 1px rgba(0,0,0,0.55)",
+              ? "0 0 0 2px #39FF14, 0 0 8px #39FF14"
+              : isDarkGreen
+                ? "0 0 0 2px #15803D, 0 0 8px #15803D"
+                : "inset 0 0 0 1px rgba(0,0,0,0.55)",
           borderRadius: 2,
           transition: "opacity 120ms ease",
         }}
