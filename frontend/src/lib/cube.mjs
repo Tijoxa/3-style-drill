@@ -144,6 +144,7 @@ export const CHICHU_EDGE_LETTERS = {
 
 export const SCHEMES = {
   speffz: {
+    key: "speffz",
     name: "Speffz",
     corner: CORNER_LETTERS,
     edge: EDGE_LETTERS,
@@ -151,6 +152,7 @@ export const SCHEMES = {
     edgeBuffer: "c",   // UF
   },
   chichu: {
+    key: "chichu",
     name: "Chichu (彳亍)",
     corner: CHICHU_CORNER_LETTERS,
     edge: CHICHU_EDGE_LETTERS,
@@ -159,12 +161,20 @@ export const SCHEMES = {
   },
 };
 
+export function getBaseScheme(maps) {
+  if (!maps) return SCHEMES.speffz;
+  if (maps.key && SCHEMES[maps.key]) return SCHEMES[maps.key];
+  if (maps.name && maps.name.toLowerCase().includes("chichu")) return SCHEMES.chichu;
+  if (maps.name && maps.name.toLowerCase().includes("speffz")) return SCHEMES.speffz;
+  return maps;
+}
+
 // --- BLDDB code mapping: blddb's internal code letters ARE the Chichu letters (uppercased). ---
 const CHICHU_CORNER_BY_IDX = {}; Object.entries(CHICHU_CORNER_LETTERS).forEach(([l, i]) => { CHICHU_CORNER_BY_IDX[i] = l; });
 const CHICHU_EDGE_BY_IDX = {}; Object.entries(CHICHU_EDGE_LETTERS).forEach(([l, i]) => { CHICHU_EDGE_BY_IDX[i] = l; });
 // Convert a scheme letter (Speffz/Chichu) to the BLDDB code letter for the same sticker.
 export function blddbCode(letter, type, maps = SCHEMES.speffz) {
-  const baseScheme = maps?.name && SCHEMES[maps.name] ? SCHEMES[maps.name] : SCHEMES.speffz;
+  const baseScheme = getBaseScheme(maps);
   const idx = (type === "corner" ? baseScheme.corner : baseScheme.edge)[letter];
   if (idx == null) return null;
   const l = (type === "corner" ? CHICHU_CORNER_BY_IDX : CHICHU_EDGE_BY_IDX)[idx];
@@ -186,9 +196,10 @@ function schemeLetterForIdx(idx, type, maps) {
 // Single blddb code char -> user scheme letter (orientation-aware). '*' (buffer) passes through.
 export function codeToSchemeLetter(codeChar, type, maps = SCHEMES.speffz) {
   if (codeChar === "*") return "*";
+  const baseScheme = getBaseScheme(maps);
   const idx = (type === "corner" ? CHICHU_CORNER_CODE_TO_IDX : CHICHU_EDGE_CODE_TO_IDX)[codeChar];
   if (idx == null) return codeChar;
-  const l = schemeLetterForIdx(idx, type, maps);
+  const l = schemeLetterForIdx(idx, type, baseScheme);
   return l ? l.toUpperCase() : codeChar;
 }
 // Per-category char typing for the display code.
@@ -197,13 +208,14 @@ const CATEGORY_CHAR_TYPE = {
   twists: () => "corner",
   parity: (i) => (i < 2 ? "edge" : "corner"),
   ltct: () => "corner",
+  t2c: () => "corner",
 };
 // Full case key ("BD", "JPR", "GAJA", "ADK") -> display string in the user's scheme.
 export function caseCodeToDisplay(codeKey, category, maps = SCHEMES.speffz) {
   const typeFn = CATEGORY_CHAR_TYPE[category] || (() => "corner");
   const letters = codeKey.split("").map((ch, i) => codeToSchemeLetter(ch, typeFn(i), maps));
   // LTCT / T2C convention: two plain letters then the twisted piece in brackets, e.g. CB[S], AU[J].
-  if (category === "ltct" && letters.length === 3) return `${letters[0]}${letters[1]}[${letters[2]}]`;
+  if ((category === "ltct" || category === "t2c") && letters.length === 3) return `${letters[0]}${letters[1]}[${letters[2]}]`;
   // Parity: 2 edge letters + 2 corner letters, separated by a space, e.g. "AB CD".
   if (category === "parity" && letters.length === 4) return `${letters[0]}${letters[1]} ${letters[2]}${letters[3]}`;
   return letters.join("");
@@ -353,7 +365,7 @@ function findRotation(top, front) {
 
 const gCache = new Map();
 // Permutation g[canonicalDefaultIdx] = hardware facelet idx for the given orientation.
-function orientPerm(top, front) {
+export function orientPerm(top, front) {
   const ck = `${top}:${front}`;
   if (gCache.has(ck)) return gCache.get(ck);
   const rot = findRotation(top, front);
