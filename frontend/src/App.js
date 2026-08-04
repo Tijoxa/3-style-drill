@@ -661,8 +661,8 @@ export default function App() {
                   transition: "all 0.15s ease",
                   background: checked ? "var(--surface-2)" : "transparent",
                   color: checked ? "#fff" : "#7a7a7a",
-                  border: checked ? "1px solid var(--active)" : "1px solid var(--line)",
-                  boxShadow: checked ? "0 0 8px rgba(0, 122, 255, 0.18)" : "none",
+                  border: checked ? "1px solid #52525B" : "1px solid var(--line)",
+                  boxShadow: checked ? "0 0 8px rgba(161, 161, 170, 0.1)" : "none",
                 }}
               >
                 <input
@@ -676,8 +676,8 @@ export default function App() {
                     width: 14,
                     height: 14,
                     borderRadius: 3.5,
-                    border: checked ? "1px solid var(--active)" : "1px solid #3F3F46",
-                    background: checked ? "var(--active)" : "var(--surface)",
+                    border: checked ? "1px solid #71717A" : "1px solid #3F3F46",
+                    background: checked ? "#52525B" : "var(--surface)",
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
