@@ -896,7 +896,7 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
             onChange={(e) => setMac(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && valid) submit(); }}
             placeholder="AA:BB:CC:DD:EE:FF"
-            style={{ ...selectStyle, width: "100%", marginTop: 16, letterSpacing: "0.08em", boxSizing: "border-box" }}
+            style={{ ...inputStyle, width: "100%", marginTop: 16, letterSpacing: "0.08em", boxSizing: "border-box" }}
           />
           {mac && !valid && <div className="font-mono" style={{ color: "var(--error)", fontSize: 11, marginTop: 6 }}>Format: AA:BB:CC:DD:EE:FF</div>}
           <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, cursor: "pointer" }}>
@@ -2196,7 +2196,7 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
           value={settings.macAddress || ""}
           onChange={(e) => set("macAddress", e.target.value)}
           placeholder="AA:BB:CC:DD:EE:FF (optional)"
-          style={{ ...selectStyle, width: "100%", boxSizing: "border-box", letterSpacing: "0.06em" }}
+          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", letterSpacing: "0.06em" }}
         />
         <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
           Saved MAC is used automatically when connecting. Leave empty to auto-detect / be prompted.
