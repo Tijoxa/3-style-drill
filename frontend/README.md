@@ -18,6 +18,11 @@ It correctly bundles React in production mode and optimizes the build for the be
 
 Output is stored in `build/` (matching GitHub Pages deployment requirements).
 
+### `bun test`
+
+Runs the deterministic unit suite for cube logic, lettering and subsets, BLDDB caching,
+spaced repetition, seeded randomness, and commutator notation.
+
 ### `bun run preview`
 
 Locally previews the production build stored in `build/`.

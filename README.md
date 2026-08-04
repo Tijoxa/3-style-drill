@@ -30,7 +30,7 @@ bun dev         # start Vite dev server with fast HMR → http://localhost:3000
 bun run build                   # production build with Vite into frontend/build
 bun run preview                 # preview production build locally
 bun run deploy                  # build + publish to GitHub Pages (gh-pages)
-node src/lib/cube.test.mjs      # run the cube-engine unit tests
+bun test                        # run the frontend unit test suite
 ```
 
 > **Web Bluetooth** requires a secure context (`https://` or `http://localhost`) and a

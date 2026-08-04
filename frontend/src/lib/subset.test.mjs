@@ -1,69 +1,79 @@
-import { test, expect } from "bun:test";
-import { getCaseCellKey, ltctCaseKind, SCHEMES } from "./cube.mjs";
-import { loadCategoryCases } from "./blddb.js";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { fetchCaseHints, loadCategoryCases } from "./blddb.js";
 
-test("getCaseCellKey extracts cell keys for T2C, LTCT, and Parity", async () => {
-  const maps = SCHEMES.speffz;
+const originalFetch = globalThis.fetch;
+const originalLocalStorage = globalThis.localStorage;
 
-  // T2C sample: "DAM" (blddb key for DA[G] in Speffz)
-  const t2cCell = getCaseCellKey("DAM", "t2c", maps);
-  expect(t2cCell).toBe("A:D:G"); // directed pair A:D with buffer twist G
+function memoryStorage(initial = {}) {
+  const values = new Map(Object.entries(initial));
+  return {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key),
+    clear: () => values.clear(),
+  };
+}
 
-  // LTCT sample: "JAE" (blddb key for CD[E], buffer C)
-  const ltctCell = getCaseCellKey("JAE", "ltct", maps);
-  expect(ltctCell).toBe("D:E"); // directed pair D:E (target1: D, target2: E)
-
-  // Parity sample: "GAJA" (blddb key for Parity: e1=B, e2=C, c1=C, c2=D)
-  const parityCell = getCaseCellKey("GAJA", "parity", maps);
-  expect(parityCell).toBe("B:C"); // e1:c1 -> B:C
+beforeEach(() => {
+  globalThis.localStorage = memoryStorage();
 });
 
-test("T2C dataset valid cells and holes", async () => {
-  const maps = SCHEMES.speffz;
-  const t2cData = await loadCategoryCases("t2c");
-  const validCells = new Set();
-  let t2cCasesCount = 0;
-
-  Object.keys(t2cData).forEach((k) => {
-    if (ltctCaseKind(k) !== "t2c") return;
-    t2cCasesCount++;
-    const ck = getCaseCellKey(k, "t2c", maps);
-    if (ck) validCells.add(ck);
-  });
-
-  expect(t2cCasesCount).toBe(126);
-  expect(validCells.size).toBe(126); // 126 valid cells (1 alg per cell)
+afterEach(() => {
+  globalThis.fetch = originalFetch;
+  if (originalLocalStorage === undefined) delete globalThis.localStorage;
+  else globalThis.localStorage = originalLocalStorage;
 });
 
-test("LTCT dataset valid cells and holes", async () => {
-  const maps = SCHEMES.speffz;
-  const ltctData = await loadCategoryCases("ltct");
-  const validCells = new Set();
-  let ltctCasesCount = 0;
+describe("BLDDB category loading", () => {
+  test("returns an empty pool for unsupported categories without fetching", async () => {
+    let calls = 0;
+    globalThis.fetch = async () => { calls++; };
 
-  Object.keys(ltctData).forEach((k) => {
-    if (ltctCaseKind(k) !== "ltct") return;
-    ltctCasesCount++;
-    const ck = getCaseCellKey(k, "ltct", maps);
-    if (ck) validCells.add(ck);
+    expect(await loadCategoryCases("unsupported")).toEqual({});
+    expect(calls).toBe(0);
   });
 
-  expect(ltctCasesCount).toBe(252);
-  expect(validCells.size).toBe(252); // 252 valid cells in 24x24 square grid
-});
+  test("loads selected cases, caches them, and builds nightmare hints", async () => {
+    const fixtures = {
+      flipsNightmareSelected: { BD: "R U R'" },
+      flipsNightmare: { BD: ["R U R'", "U R U'"] },
+    };
+    globalThis.fetch = async (url) => {
+      const name = new URL(url).pathname.split("/").pop().replace(".json", "");
+      return new Response(JSON.stringify(fixtures[name]), { status: fixtures[name] ? 200 : 404 });
+    };
 
-test("Parity dataset valid cells and holes", async () => {
-  const maps = SCHEMES.speffz;
-  const parityData = await loadCategoryCases("parity");
-  const validCells = new Set();
-  let parityCasesCount = 0;
+    expect(await loadCategoryCases("flips")).toEqual({ BD: "R U R'" });
+    expect(JSON.parse(localStorage.getItem("blddb_cache_v2_flipsNightmareSelected"))).toEqual(fixtures.flipsNightmareSelected);
 
-  Object.keys(parityData).forEach((k) => {
-    const ck = getCaseCellKey(k, "parity", maps);
-    if (ck) validCells.add(ck);
-    parityCasesCount++;
+    const hints = await fetchCaseHints({ category: "flips", key: "BD", style: "nightmare" });
+    expect(hints.notFound).toBeFalse();
+    expect(hints.recommended).toBe("R U R'");
+    expect(hints.list.map(({ alg }) => alg)).toEqual(["R U R'", "U R U'"]);
   });
 
-  expect(parityCasesCount).toBe(315);
-  expect(validCells.size).toBe(8); // 8 valid cells in 24x24 square grid
+  test("normalizes list-backed categories into flat case pools", async () => {
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      JAE: ["R U"],
+      DAM: "F R",
+    }), { status: 200 });
+
+    expect(await loadCategoryCases("t2c")).toEqual({ JAE: "R U", DAM: "F R" });
+  });
+
+  test("falls back to a persisted cache when the network is unavailable", async () => {
+    globalThis.localStorage = memoryStorage({
+      blddb_cache_v2_parityNightmareSelected: JSON.stringify({ GAJA: "R2 U2" }),
+    });
+    globalThis.fetch = async () => { throw new Error("offline"); };
+
+    expect(await loadCategoryCases("parity")).toEqual({ GAJA: "R2 U2" });
+  });
+
+  test("preserves the network error when localStorage is unavailable", async () => {
+    delete globalThis.localStorage;
+    globalThis.fetch = async () => { throw new Error("offline"); };
+
+    await expect(loadCategoryCases("twists")).rejects.toThrow("offline");
+  });
 });
