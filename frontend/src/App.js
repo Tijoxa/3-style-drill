@@ -702,6 +702,13 @@ export default function App() {
     toast.success("All statistics deleted");
   };
 
+  const resetSessionStats = () => {
+    resetAndStop();
+    streakRef.current = 0;
+    setSession({ solved: 0, streak: 0, bestStreak: 0, times: [] });
+    sessionStartRef.current = Date.now();
+  };
+
   const resetSchedule = () => {
     resetFsrs(fsrsRef.current);
     toast.success("Spaced-repetition memory reset");
@@ -925,12 +932,31 @@ export default function App() {
       )}
 
       {/* HUD */}
-      <div data-testid="live-session-hud" style={{ position: "relative", zIndex: 2, display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(5, 1fr)", borderTop: "1px solid var(--line)", background: "var(--bg)" }}>
+      <div data-testid="live-session-hud" style={{ position: "relative", zIndex: 2, display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(5, 1fr) auto", borderTop: "1px solid var(--line)", background: "var(--bg)" }}>
         <Stat label="Solved" value={session.solved} testid="hud-solved" />
         <Stat label="Streak" value={session.streak} accent="var(--success)" testid="hud-streak" />
         <Stat label="Best Streak" value={session.bestStreak} testid="hud-best-streak" />
         <Stat label="Last / Avg" value={`${(lastMs / 1000).toFixed(1)}s / ${(avgMs / 1000).toFixed(1)}s`} testid="hud-time" small />
-        <Stat label="Cases / min" value={cpm.toFixed(1)} testid="hud-cpm" last />
+        <Stat label="Cases / min" value={cpm.toFixed(1)} testid="hud-cpm" />
+        <button
+          data-testid="reset-session-stats-btn"
+          aria-label="Reset session statistics"
+          title="Reset session statistics"
+          onClick={resetSessionStats}
+          style={{
+            display: "grid",
+            placeItems: "center",
+            minWidth: isMobile ? 0 : 62,
+            minHeight: 72,
+            border: "none",
+            borderBottom: "1px solid var(--line)",
+            background: "transparent",
+            color: "#71717A",
+            cursor: "pointer",
+          }}
+        >
+          <RotateCcw size={18} />
+        </button>
       </div>
 
       {/* Drawers */}
@@ -2226,9 +2252,9 @@ function RecognitionTimer({ caseStartRef, caseStoppedRef, pairKey, isPaused }) {
   );
 }
 
-function Stat({ label, value, accent, testid, small, last }) {
+function Stat({ label, value, accent, testid, small }) {
   return (
-    <div data-testid={testid} style={{ padding: "14px 18px", borderRight: last ? "none" : "1px solid var(--line)", borderBottom: "1px solid var(--line)" }}>
+    <div data-testid={testid} style={{ padding: "14px 18px", borderRight: "1px solid var(--line)", borderBottom: "1px solid var(--line)" }}>
       <div className="overline font-head" style={{ fontSize: 11, color: "#52525B" }}>{label}</div>
       <div className="font-mono" style={{ fontSize: small ? 18 : 26, fontWeight: 800, color: accent || "#fff", marginTop: 2 }}>{value}</div>
     </div>
