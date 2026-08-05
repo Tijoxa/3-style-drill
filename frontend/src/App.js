@@ -36,6 +36,7 @@ const FLIP_COUNTS_AVAILABLE = [2];
 const TWIST_COUNTS_AVAILABLE = [2, 3, 4, 5, 6, 7, 8];
 // Maps the active drill mode to the matching Case Subset view
 const MODE_TO_SUBSET_VIEW = { corners: "corner", edges: "edge", flips: "flips", twists: "twists", parity: "parity", ltct: "ltct", t2c: "t2c" };
+const caseTypeToMode = (type) => type === "corner" ? "corners" : type === "edge" ? "edges" : type;
 const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
 const getMaps = (scheme) => SCHEMES[scheme] || SCHEMES.speffz;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -445,21 +446,30 @@ export default function App() {
     }, 250);
   }, [drawer, hintOpen, subsetOpen, macPrompt, onSuccess, startTiming, resetAndStop]);
 
-  // init first case + rebuild on selectedModes / scheme / buffer change
+  // Init the first case and rebuild when settings can change the case itself.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { buildCase(); }, [selectedModes, settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts]);
+  useEffect(() => { buildCase(); }, [settings.scheme, settings.cornerBuffer, settings.edgeBuffer, settings.orientation, settings.disabledCases, settings.flipCounts, settings.twistCounts]);
 
-  // Load the algorithm set for extra categories (flips/twists/parity/ltct/t2c), then build a case.
+  // Checkbox changes should not replace a case that still belongs to an active mode.
+  useEffect(() => {
+    const currentMode = targetRef.current ? caseTypeToMode(currentTypeRef.current) : null;
+    if (currentMode && selectedModes.includes(currentMode)) return;
+    buildCase();
+  }, [selectedModes, buildCase]);
+
+  // Load newly selected algorithm sets in the background. Only replace the displayed
+  // case after loading if its mode is no longer selected.
   useEffect(() => {
     const needed = selectedModes.filter((m) => NEW_CATEGORIES.includes(m) && !categoryCacheRef.current[m]);
-    if (!needed.length) { buildCase(); return; }
+    if (!needed.length) return;
     let cancelled = false;
     setCatState({ loading: true, error: null });
     Promise.all(needed.map((c) => loadCategoryCases(c).then((rec) => { categoryCacheRef.current[c] = rec; })))
       .then(() => {
         if (cancelled) return;
         setCatState({ loading: false, error: null });
-        buildCase();
+        const currentMode = targetRef.current ? caseTypeToMode(currentTypeRef.current) : null;
+        if (!currentMode || !selectedModesRef.current.includes(currentMode)) buildCase();
       })
       .catch((e) => { if (!cancelled) setCatState({ loading: false, error: e.message || String(e) }); });
     return () => { cancelled = true; };
@@ -661,8 +671,8 @@ export default function App() {
                   transition: "all 0.15s ease",
                   background: checked ? "var(--surface-2)" : "transparent",
                   color: checked ? "#fff" : "#7a7a7a",
-                  border: checked ? "1px solid var(--active)" : "1px solid var(--line)",
-                  boxShadow: checked ? "0 0 8px rgba(0, 122, 255, 0.18)" : "none",
+                  border: checked ? "1px solid #52525B" : "1px solid var(--line)",
+                  boxShadow: checked ? "0 0 8px rgba(161, 161, 170, 0.1)" : "none",
                 }}
               >
                 <input
@@ -676,8 +686,8 @@ export default function App() {
                     width: 14,
                     height: 14,
                     borderRadius: 3.5,
-                    border: checked ? "1px solid var(--active)" : "1px solid #3F3F46",
-                    background: checked ? "var(--active)" : "var(--surface)",
+                    border: checked ? "1px solid #71717A" : "1px solid #3F3F46",
+                    background: checked ? "#52525B" : "var(--surface)",
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
@@ -896,7 +906,7 @@ function MacModal({ deviceName, onSubmit, onSaveDefault }) {
             onChange={(e) => setMac(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && valid) submit(); }}
             placeholder="AA:BB:CC:DD:EE:FF"
-            style={{ ...selectStyle, width: "100%", marginTop: 16, letterSpacing: "0.08em", boxSizing: "border-box" }}
+            style={{ ...inputStyle, width: "100%", marginTop: 16, letterSpacing: "0.08em", boxSizing: "border-box" }}
           />
           {mac && !valid && <div className="font-mono" style={{ color: "var(--error)", fontSize: 11, marginTop: 6 }}>Format: AA:BB:CC:DD:EE:FF</div>}
           <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14, cursor: "pointer" }}>
@@ -2196,7 +2206,7 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
           value={settings.macAddress || ""}
           onChange={(e) => set("macAddress", e.target.value)}
           placeholder="AA:BB:CC:DD:EE:FF (optional)"
-          style={{ ...selectStyle, width: "100%", boxSizing: "border-box", letterSpacing: "0.06em" }}
+          style={{ ...inputStyle, width: "100%", boxSizing: "border-box", letterSpacing: "0.06em" }}
         />
         <span className="font-mono" style={{ fontSize: 11, color: "#52525B" }}>
           Saved MAC is used automatically when connecting. Leave empty to auto-detect / be prompted.
