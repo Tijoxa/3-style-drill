@@ -85,6 +85,8 @@ const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", 
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 const ALLOWED_MOVE_KEYS = new Set(["r", "f", "u", "d", "l", "b", "shift"]);
 const MODE_SELECTION_PREVIEW_DELAY_MS = 450;
+const MODE_HINT_DELAY_MS = 500;
+const MODE_LONG_PRESS_MS = 450;
 
 export default function App() {
   const [selectedModes, setSelectedModes] = useState(() => loadJSON(SELECTED_MODES_KEY, ["corners"]));
@@ -106,6 +108,8 @@ export default function App() {
   const [subsetOpen, setSubsetOpen] = useState(false);
   const [lifetime, setLifetime] = useState(() => loadJSON(STATS_KEY, { totalCases: 0, totalTimeMs: 0, bestStreak: 0, perDay: {} }));
   const [isTimerPaused, setIsTimerPaused] = useState(false);
+  const [modeHint, setModeHint] = useState(null);
+  const [holdingMode, setHoldingMode] = useState(null);
 
   const [session, setSession] = useState({ solved: 0, streak: 0, bestStreak: 0, times: [] });
   const sessionStartRef = useRef(Date.now());
@@ -129,6 +133,8 @@ export default function App() {
   const btStatusRef = useRef("disconnected");
   const tapRef = useRef({ timer: null });
   const modeSelectionPreviewTimerRef = useRef(null);
+  const modeHintTimerRef = useRef(null);
+  const modeLongPressRef = useRef({ timer: null, cat: null, completed: false });
   const categoryCacheRef = useRef({}); // category -> { key: recommendedAlg }
   const [catState, setCatState] = useState({ loading: false, error: null });
   const isTimerPausedRef = useRef(isTimerPaused);
@@ -162,6 +168,62 @@ export default function App() {
     }, MODE_SELECTION_PREVIEW_DELAY_MS);
   }, []);
 
+  const showModeHintAfterDelay = useCallback((cat) => {
+    if (isMobile) return;
+    if (modeHintTimerRef.current) clearTimeout(modeHintTimerRef.current);
+    modeHintTimerRef.current = setTimeout(() => {
+      modeHintTimerRef.current = null;
+      setModeHint(cat);
+    }, MODE_HINT_DELAY_MS);
+  }, [isMobile]);
+
+  const hideModeHint = useCallback(() => {
+    if (modeHintTimerRef.current) clearTimeout(modeHintTimerRef.current);
+    modeHintTimerRef.current = null;
+    setModeHint(null);
+  }, []);
+
+  const startModeLongPress = useCallback((cat) => {
+    suspendNextCasePreview();
+    if (!isMobile) return;
+    const previous = modeLongPressRef.current;
+    if (previous.timer) clearTimeout(previous.timer);
+    const hold = { timer: null, cat, completed: false };
+    hold.timer = setTimeout(() => {
+      hold.timer = null;
+      hold.completed = true;
+      selectOnlyMode(cat);
+    }, MODE_LONG_PRESS_MS);
+    modeLongPressRef.current = hold;
+    setHoldingMode(cat);
+  }, [isMobile, selectOnlyMode, suspendNextCasePreview]);
+
+  const finishModeLongPress = useCallback((cat) => {
+    if (!isMobile) return;
+    const hold = modeLongPressRef.current;
+    if (hold.cat !== cat) return;
+    if (hold.timer) clearTimeout(hold.timer);
+    hold.timer = null;
+    setHoldingMode(null);
+    if (!hold.completed) modeLongPressRef.current = { timer: null, cat: null, completed: false };
+  }, [isMobile]);
+
+  const cancelModeLongPress = useCallback((cat) => {
+    if (!isMobile) return;
+    const hold = modeLongPressRef.current;
+    if (hold.cat !== cat) return;
+    if (hold.timer) clearTimeout(hold.timer);
+    modeLongPressRef.current = { timer: null, cat: null, completed: false };
+    setHoldingMode(null);
+  }, [isMobile]);
+
+  const suppressCompletedLongPressClick = useCallback((cat, event) => {
+    const hold = modeLongPressRef.current;
+    if (!isMobile || hold.cat !== cat || !hold.completed) return;
+    event.preventDefault();
+    modeLongPressRef.current = { timer: null, cat: null, completed: false };
+  }, [isMobile]);
+
   const getRandom = useCallback(() => {
     const s = settingsRef.current;
     if (s.distribution !== "spaced" && s.useSeed) {
@@ -182,6 +244,8 @@ export default function App() {
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
   useEffect(() => () => {
     if (modeSelectionPreviewTimerRef.current) clearTimeout(modeSelectionPreviewTimerRef.current);
+    if (modeHintTimerRef.current) clearTimeout(modeHintTimerRef.current);
+    if (modeLongPressRef.current.timer) clearTimeout(modeLongPressRef.current.timer);
   }, []);
 
   const buildCase = useCallback((startImmediately = false, previewOnly = false) => {
@@ -764,13 +828,24 @@ export default function App() {
         >
           {ALL_CATEGORIES.map((c) => {
             const checked = selectedModes.includes(c);
+            const isHolding = holdingMode === c;
             return (
               <label
                 key={c}
                 data-testid={`mode-${c}`}
                 data-checked={checked}
-                onPointerDown={suspendNextCasePreview}
+                data-holding={isHolding}
+                className={`mode-pill${isHolding ? " mode-pill--holding" : ""}`}
+                onMouseEnter={() => showModeHintAfterDelay(c)}
+                onMouseLeave={hideModeHint}
+                onPointerDown={() => startModeLongPress(c)}
+                onPointerUp={() => finishModeLongPress(c)}
+                onPointerCancel={() => cancelModeLongPress(c)}
+                onPointerLeave={() => cancelModeLongPress(c)}
+                onClick={(e) => suppressCompletedLongPressClick(c, e)}
+                onContextMenu={(e) => { if (isMobile) e.preventDefault(); }}
                 onDoubleClick={(e) => {
+                  if (isMobile) return;
                   e.preventDefault();
                   suspendNextCasePreview();
                   selectOnlyMode(c);
@@ -786,6 +861,7 @@ export default function App() {
                   fontFamily: "'JetBrains Mono', monospace",
                   cursor: "pointer",
                   userSelect: "none",
+                  touchAction: "manipulation",
                   transition: "all 0.15s ease",
                   background: checked ? "var(--surface-2)" : "transparent",
                   color: checked ? "#fff" : "#7a7a7a",
@@ -799,23 +875,14 @@ export default function App() {
                   onChange={() => toggleMode(c)}
                   style={{ position: "absolute", opacity: 0, width: 0, height: 0, pointerEvents: "none" }}
                 />
-                <div
-                  style={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: 3.5,
-                    border: checked ? "1px solid #71717A" : "1px solid #3F3F46",
-                    background: checked ? "#52525B" : "var(--surface)",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transition: "all 0.15s ease",
-                    flexShrink: 0,
-                  }}
-                >
-                  {checked && <Check size={10} style={{ color: "#fff", strokeWidth: 3 }} />}
-                </div>
-                <span>{CATEGORY_META[c]?.short || c.toUpperCase()}</span>
+                <span className="mode-pill-label">
+                  {CATEGORY_META[c]?.short || c.toUpperCase()}
+                </span>
+                {!isMobile && modeHint === c && (
+                  <span role="tooltip" className="mode-pill-tooltip">
+                    Double-click to select only this mode
+                  </span>
+                )}
               </label>
             );
           })}
