@@ -1,38 +1,39 @@
-import assert from "node:assert";
+import { describe, expect, test } from "bun:test";
 import { createPRNG } from "./prng.js";
 
-console.log("Running PRNG unit tests...");
+const sequence = (seed, length = 5) => {
+  const random = createPRNG(seed);
+  return Array.from({ length }, () => random());
+};
 
-// Test 1: Determinism with default seed 42
-const rng1 = createPRNG(42);
-const seq1 = [rng1(), rng1(), rng1(), rng1(), rng1()];
+describe("createPRNG", () => {
+  test("reproduces the Mulberry32 reference sequence", () => {
+    expect(sequence(42, 3)).toEqual([
+      0.6011037519201636,
+      0.44829055899754167,
+      0.8524657934904099,
+    ]);
+  });
 
-const rng2 = createPRNG(42);
-const seq2 = [rng2(), rng2(), rng2(), rng2(), rng2()];
+  test.each([undefined, null, "", "not-a-number"])("uses seed 42 for %p", (seed) => {
+    expect(sequence(seed)).toEqual(sequence(42));
+  });
 
-assert.deepStrictEqual(seq1, seq2, "PRNG output sequence with seed 42 must be identical");
+  test("is deterministic and separates different seeds", () => {
+    expect(sequence(12345)).toEqual(sequence(12345));
+    expect(sequence(12345)).not.toEqual(sequence(54321));
+  });
 
-// Test 2: Default fallback to 42 for undefined/null/empty/invalid
-const rngDef1 = createPRNG(undefined);
-const rngDef2 = createPRNG(null);
-const rngDef3 = createPRNG("");
-const seqDef1 = [rngDef1(), rngDef1()];
-const seqDef2 = [rngDef2(), rngDef2()];
-const seqDef3 = [rngDef3(), rngDef3()];
+  test("normalizes seeds to unsigned 32-bit values", () => {
+    expect(sequence(0)).toEqual(sequence(2 ** 32));
+    expect(sequence(-1)).toEqual(sequence(2 ** 32 - 1));
+    expect(sequence("42")).toEqual(sequence(42));
+  });
 
-assert.deepStrictEqual(seqDef1, seq1.slice(0, 2), "Undefined seed must default to 42");
-assert.deepStrictEqual(seqDef2, seq1.slice(0, 2), "Null seed must default to 42");
-assert.deepStrictEqual(seqDef3, seq1.slice(0, 2), "Empty seed must default to 42");
-
-// Test 3: Different seed produces different sequence
-const rngDiff = createPRNG(12345);
-const seqDiff = [rngDiff(), rngDiff(), rngDiff(), rngDiff(), rngDiff()];
-assert.notDeepStrictEqual(seq1, seqDiff, "Different seeds should produce different sequences");
-
-// Test 4: All numbers in [0, 1)
-for (let i = 0; i < 1000; i++) {
-  const v = rng1();
-  assert(v >= 0 && v < 1, `Value ${v} outside [0, 1)`);
-}
-
-console.log("All PRNG unit tests passed!");
+  test("always emits values in the half-open unit interval", () => {
+    const values = sequence(987654321, 2_000);
+    expect(Math.min(...values)).toBeGreaterThanOrEqual(0);
+    expect(Math.max(...values)).toBeLessThan(1);
+    expect(new Set(values).size).toBe(values.length);
+  });
+});

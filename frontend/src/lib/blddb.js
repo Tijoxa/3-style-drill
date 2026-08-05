@@ -19,7 +19,8 @@ async function loadFile(name) {
     try { localStorage.setItem(CACHE_PREFIX + name, JSON.stringify(data)); } catch {}
     return data;
   } catch (e) {
-    const cached = localStorage.getItem(CACHE_PREFIX + name);
+    let cached = null;
+    try { cached = localStorage.getItem(CACHE_PREFIX + name); } catch {}
     if (cached) { const d = JSON.parse(cached); mem[name] = d; return d; }
     throw e;
   }
