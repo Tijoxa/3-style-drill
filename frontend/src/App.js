@@ -40,6 +40,22 @@ const caseTypeToMode = (type) => type === "corner" ? "corners" : type === "edge"
 const facelet = (l, type, maps) => (type === "corner" ? maps.corner : maps.edge)[l];
 const getMaps = (scheme) => SCHEMES[scheme] || SCHEMES.speffz;
 const today = () => new Date().toISOString().slice(0, 10);
+const pairLabel = (value, fallback = "--") => value
+  ? (value.display != null ? value.display : `${value.t1}${value.t2}`.toUpperCase())
+  : fallback;
+
+function CaseCode({ pair, text }) {
+  if (pair?.type === "parity" && typeof text === "string" && text.includes("\u2002")) {
+    return (
+      <>
+        <span>{text.split("\u2002")[0]}</span>
+        <span style={{ display: "inline-block", width: "0.25em" }} />
+        <span>{text.split("\u2002")[1]}</span>
+      </>
+    );
+  }
+  return text;
+}
 
 function loadJSON(key, fallback) {
   try { const v = JSON.parse(localStorage.getItem(key)); return v || fallback; } catch { return fallback; }
@@ -65,15 +81,18 @@ function beep(freq, ok) {
   } catch { }
 }
 
-const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], orientation: { top: "white", front: "green" }, distribution: "uniform", useSeed: false, seed: 42, srTimeoutMs: 10000, disabledCases: {} };
+const defaultSettings = { scheme: "speffz", cornerBuffer: "C", edgeBuffer: "c", sound: true, showNextCase: true, showManual: false, macAddress: "", cornerStyle: "nightmare", edgeStyle: "nightmare", catStyle: "nightmare", flipCounts: [2], twistCounts: [2], orientation: { top: "white", front: "green" }, distribution: "uniform", useSeed: false, seed: 42, srTimeoutMs: 10000, disabledCases: {} };
 const caseKey = (scheme, type, t1, t2) => `${scheme}:${type}:${t1}:${t2}`;
 const ALLOWED_MOVE_KEYS = new Set(["r", "f", "u", "d", "l", "b", "shift"]);
+const MODE_SELECTION_PREVIEW_DELAY_MS = 450;
 
 export default function App() {
   const [selectedModes, setSelectedModes] = useState(() => loadJSON(SELECTED_MODES_KEY, ["corners"]));
   const isMobile = useIsMobile();
   const [settings, setSettings] = useState(() => ({ ...defaultSettings, ...loadJSON(SETTINGS_KEY, {}) }));
   const [pair, setPair] = useState(null);
+  const [nextPair, setNextPair] = useState(null);
+  const [isModeSelectionPending, setIsModeSelectionPending] = useState(false);
   const [highlights, setHighlights] = useState({});
   const [netState, setNetState] = useState(SOLVED);
   const [flash, setFlash] = useState(null);
@@ -109,11 +128,14 @@ export default function App() {
   const currentTypeRef = useRef("corner");
   const btStatusRef = useRef("disconnected");
   const tapRef = useRef({ timer: null });
+  const modeSelectionPreviewTimerRef = useRef(null);
   const categoryCacheRef = useRef({}); // category -> { key: recommendedAlg }
   const [catState, setCatState] = useState({ loading: false, error: null });
   const isTimerPausedRef = useRef(isTimerPaused);
   const prngRef = useRef(null);
   const pressedKeysRef = useRef(new Set());
+  const nextCaseRef = useRef(null);
+  const caseSequenceRef = useRef(0);
 
   const toggleMode = useCallback((cat) => {
     setSelectedModes((prev) => {
@@ -129,6 +151,15 @@ export default function App() {
 
   const selectOnlyMode = useCallback((cat) => {
     setSelectedModes([cat]);
+  }, []);
+
+  const suspendNextCasePreview = useCallback(() => {
+    setIsModeSelectionPending(true);
+    if (modeSelectionPreviewTimerRef.current) clearTimeout(modeSelectionPreviewTimerRef.current);
+    modeSelectionPreviewTimerRef.current = setTimeout(() => {
+      modeSelectionPreviewTimerRef.current = null;
+      setIsModeSelectionPending(false);
+    }, MODE_SELECTION_PREVIEW_DELAY_MS);
   }, []);
 
   const getRandom = useCallback(() => {
@@ -149,22 +180,53 @@ export default function App() {
   useEffect(() => { selectedModesRef.current = selectedModes; localStorage.setItem(SELECTED_MODES_KEY, JSON.stringify(selectedModes)); }, [selectedModes]);
   useEffect(() => { btStatusRef.current = btStatus; }, [btStatus]);
   useEffect(() => { settingsRef.current = settings; localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }, [settings]);
+  useEffect(() => () => {
+    if (modeSelectionPreviewTimerRef.current) clearTimeout(modeSelectionPreviewTimerRef.current);
+  }, []);
 
-  const buildCase = useCallback((startImmediately = false) => {
-    if (noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
+  const buildCase = useCallback((startImmediately = false, previewOnly = false) => {
+    if (!previewOnly && noMoveTimeoutRef.current) { clearTimeout(noMoveTimeoutRef.current); noMoveTimeoutRef.current = null; }
     const s = settingsRef.current;
     const active = selectedModesRef.current;
     if (!active || !active.length) return;
 
+    const configKey = JSON.stringify({
+      active,
+      scheme: s.scheme,
+      cornerBuffer: s.cornerBuffer,
+      edgeBuffer: s.edgeBuffer,
+      orientation: s.orientation,
+      disabledCases: s.disabledCases || {},
+      flipCounts: s.flipCounts || [2],
+      twistCounts: s.twistCounts || [2],
+      distribution: s.distribution,
+      useSeed: s.useSeed,
+      seed: s.seed,
+    });
+    const queued = !previewOnly && nextCaseRef.current?.configKey === configKey
+      ? nextCaseRef.current
+      : null;
+    if (!previewOnly) {
+      nextCaseRef.current = null;
+      setNextPair(null);
+    }
+    const clearPreview = () => {
+      nextCaseRef.current = null;
+      setNextPair(null);
+    };
+    const queueFollowingCase = () => setTimeout(() => buildCase(false, true), 0);
+
     // Randomly pick one category from active checked modes
-    const m = active[Math.floor(getRandom() * active.length)];
+    const m = queued?.mode && active.includes(queued.mode)
+      ? queued.mode
+      : active[Math.floor(getRandom() * active.length)];
 
     // --- Extra categories (flips / twists / parity / ltct / t2c): drill blddb algorithm sets ---
     if (NEW_CATEGORIES.includes(m)) {
       const recMap = categoryCacheRef.current[m];
       const catMaps = getMaps(s.scheme);
       const clearCase = () => { targetRef.current = null; caseStartRef.current = null; caseStartedRef.current = false; caseStoppedRef.current = null; setPair(null); setHighlights({}); };
-      if (!recMap) { clearCase(); return; }
+      if (!recMap) { previewOnly ? clearPreview() : clearCase(); return; }
       let keys = Object.keys(recMap);
       const disabled = s.disabledCases || {};
       if (m === "flips") keys = keys.filter((k) => (s.flipCounts || [2]).includes(k.length));
@@ -190,17 +252,35 @@ export default function App() {
           return !disabled[`${s.scheme}:parity:${cellKey}`];
         });
       }
-      if (!keys.length) { clearCase(); return; }
+      if (!keys.length) { previewOnly ? clearPreview() : clearCase(); return; }
       const cur = cubeStateRef.current;
       const spaced = s.distribution === "spaced";
+      const queuedKey = queued?.kind === "category" && queued.mode === m && keys.includes(queued.code)
+        ? queued.code
+        : null;
       for (let tries = 0; tries < 200; tries++) {
-        const kkey = spaced
-          ? pickWeightedPair(keys, (k) => `${s.scheme}:${m}:${k}`, fsrsRef.current)
-          : keys[Math.floor(getRandom() * keys.length)];
+        const kkey = tries === 0 && queuedKey
+          ? queuedKey
+          : spaced
+            ? pickWeightedPair(keys, (k) => `${s.scheme}:${m}:${k}`, fsrsRef.current)
+            : keys[Math.floor(getRandom() * keys.length)];
         const alg = recMap[kkey];
         if (!alg) continue;
         const target = applyAlg(cur, alg);
         if (target !== cur) {
+          const baseMaps = SCHEMES[s.scheme] || SCHEMES.speffz;
+          const pairValue = {
+            code: kkey,
+            display: caseCodeToDisplay(kkey, m, baseMaps),
+            type: m,
+            transitionId: queuedKey ? queued.transitionId : ++caseSequenceRef.current,
+          };
+          if (previewOnly) {
+            const descriptor = { configKey, kind: "category", mode: m, code: kkey, transitionId: pairValue.transitionId };
+            nextCaseRef.current = descriptor;
+            setNextPair(pairValue);
+            return;
+          }
           targetRef.current = target;
           currentCaseKeyRef.current = `${s.scheme}:${m}:${kkey}`;
           currentTypeRef.current = m;
@@ -216,8 +296,7 @@ export default function App() {
             caseStartedRef.current = false;
             caseStartRef.current = null;
           }
-          const baseMaps = SCHEMES[s.scheme] || SCHEMES.speffz;
-          setPair({ code: kkey, display: caseCodeToDisplay(kkey, m, baseMaps), type: m });
+          setPair(pairValue);
           const chars = kkey.split("");
           const charType = (i) => (m === "flips" ? "edge" : m === "twists" ? "corner" : m === "parity" ? (i < 2 ? "edge" : "corner") : "corner");
           const fFor = (i) => {
@@ -228,9 +307,11 @@ export default function App() {
           else if (m === "parity" && chars.length === 4) { blueSet = [fFor(0), fFor(2)]; greenSet = [fFor(1), fFor(3)]; }
           else { greenSet = chars.map((_, i) => fFor(i)); }
           setHighlights({ greenSet: greenSet.filter((x) => x != null), darkGreenSet: darkGreenSet.filter((x) => x != null), blueSet: blueSet.filter((x) => x != null) });
+          queueFollowingCase();
           return;
         }
       }
+      if (previewOnly) clearPreview();
       return;
     }
 
@@ -252,6 +333,7 @@ export default function App() {
       }
     }
     if (validPairs.length === 0) {
+      if (previewOnly) { clearPreview(); return; }
       targetRef.current = null;
       caseStartRef.current = null;
       caseStartedRef.current = false;
@@ -262,12 +344,30 @@ export default function App() {
     }
     const cur = cubeStateRef.current;
     const spaced = s.distribution === "spaced";
+    const queuedPair = queued?.kind === "cycle" && queued.mode === m
+      && validPairs.some(([a, b]) => a === queued.t1 && b === queued.t2)
+      ? [queued.t1, queued.t2]
+      : null;
     for (let tries = 0; tries < 200; tries++) {
-      const [t1, t2] = spaced
-        ? pickWeightedPair(validPairs, ([a, b]) => caseKey(s.scheme, type, a, b), fsrsRef.current)
-        : validPairs[Math.floor(getRandom() * validPairs.length)];
+      const [t1, t2] = tries === 0 && queuedPair
+        ? queuedPair
+        : spaced
+          ? pickWeightedPair(validPairs, ([a, b]) => caseKey(s.scheme, type, a, b), fsrsRef.current)
+          : validPairs[Math.floor(getRandom() * validPairs.length)];
       const target = apply3Cycle(cur, [buffer, t1, t2], type, maps);
       if (target !== cur) {
+        const pairValue = {
+          t1,
+          t2,
+          type,
+          transitionId: queuedPair ? queued.transitionId : ++caseSequenceRef.current,
+        };
+        if (previewOnly) {
+          const descriptor = { configKey, kind: "cycle", mode: m, t1, t2, transitionId: pairValue.transitionId };
+          nextCaseRef.current = descriptor;
+          setNextPair(pairValue);
+          return;
+        }
         targetRef.current = target;
         currentCaseKeyRef.current = caseKey(s.scheme, type, t1, t2);
         currentTypeRef.current = type;
@@ -286,11 +386,13 @@ export default function App() {
           caseStartedRef.current = false;
           caseStartRef.current = null;
         }
-        setPair({ t1, t2, type });
+        setPair(pairValue);
         setHighlights({ bufferIdx: facelet(buffer, type, maps), t1Idx: facelet(t1, type, maps), t2Idx: facelet(t2, type, maps) });
+        queueFollowingCase();
         return;
       }
     }
+    if (previewOnly) clearPreview();
   }, [getRandom]);
 
   const onSuccess = useCallback((capturedElapsed) => {
@@ -453,7 +555,12 @@ export default function App() {
   // Checkbox changes should not replace a case that still belongs to an active mode.
   useEffect(() => {
     const currentMode = targetRef.current ? caseTypeToMode(currentTypeRef.current) : null;
-    if (currentMode && selectedModes.includes(currentMode)) return;
+    if (currentMode && selectedModes.includes(currentMode)) {
+      nextCaseRef.current = null;
+      setNextPair(null);
+      buildCase(false, true);
+      return;
+    }
     buildCase();
   }, [selectedModes, buildCase]);
 
@@ -470,6 +577,7 @@ export default function App() {
         setCatState({ loading: false, error: null });
         const currentMode = targetRef.current ? caseTypeToMode(currentTypeRef.current) : null;
         if (!currentMode || !selectedModesRef.current.includes(currentMode)) buildCase();
+        else buildCase(false, true);
       })
       .catch((e) => { if (!cancelled) setCatState({ loading: false, error: e.message || String(e) }); });
     return () => { cancelled = true; };
@@ -604,7 +712,8 @@ export default function App() {
   const elapsedMin = (Date.now() - sessionStartRef.current) / 60000;
   const cpm = elapsedMin > 0.05 ? session.solved / elapsedMin : 0;
 
-  const pairText = pair ? (pair.display != null ? pair.display : `${pair.t1}${pair.t2}`.toUpperCase()) : (catState.loading ? "…" : "--");
+  const pairText = pairLabel(pair, catState.loading ? "…" : "--");
+  const nextPairText = pairLabel(nextPair, "");
   const flashColor = flash === "ok" ? "var(--success)" : flash === "err" ? "var(--error)" : "#fff";
 
   return (
@@ -653,8 +762,10 @@ export default function App() {
                 key={c}
                 data-testid={`mode-${c}`}
                 data-checked={checked}
+                onPointerDown={suspendNextCasePreview}
                 onDoubleClick={(e) => {
                   e.preventDefault();
+                  suspendNextCasePreview();
                   selectOnlyMode(c);
                 }}
                 style={{
@@ -717,25 +828,56 @@ export default function App() {
             : `${pair?.type === "edge" ? "EDGE 3-STYLE" : "CORNER 3-STYLE"} · BUFFER ${(pair?.type === "edge" ? settings.edgeBuffer : settings.cornerBuffer).toUpperCase()} · ${(SCHEMES[settings.scheme] || SCHEMES.speffz).name}`}
         </div>
 
-        <AnimatePresence mode="popLayout">
-          <motion.div
-            key={pairText + flash}
-            data-testid="letter-pair-display"
-            className={`font-mono ${flash === "ok" ? "popok" : flash === "err" ? "shake" : ""}`}
-            initial={{ opacity: 0.2, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.08 }}
-            style={{ fontSize: "clamp(5rem, 15vw, 18rem)", lineHeight: 1, fontWeight: 800, letterSpacing: "-0.04em", color: flashColor }}
+        <div style={{ position: "relative", display: "grid", width: "min(100%, 1200px)", minHeight: "clamp(8.5rem, 19vw, 21.5rem)", placeItems: "center", flexShrink: 0 }}>
+          <div
+            style={{
+              display: "grid",
+              placeItems: "center",
+              transform: settings.showNextCase !== false
+                ? "translateY(clamp(-2rem, -1.65vw, -0.55rem))"
+                : "translateY(0)",
+              transition: "transform 100ms ease-out",
+            }}
           >
-            {pair?.type === "parity" && typeof pairText === "string" && pairText.includes("\u2002") ? (
-              <>
-                <span>{pairText.split("\u2002")[0]}</span>
-                <span style={{ display: "inline-block", width: "0.25em" }} />
-                <span>{pairText.split("\u2002")[1]}</span>
-              </>
-            ) : pairText}
-          </motion.div>
-        </AnimatePresence>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={pair?.transitionId || pairText}
+                initial={settings.showNextCase !== false
+                  ? { opacity: 0.35, scale: 0.76, color: "#52525B" }
+                  : { opacity: 0, scale: 0.96, color: flashColor }}
+                animate={{ opacity: 1, scale: 1, color: flashColor }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.085, ease: "easeOut" }}
+              >
+                <div
+                  data-testid="letter-pair-display"
+                  className={`font-mono ${flash === "ok" ? "popok" : flash === "err" ? "shake" : ""}`}
+                  style={{ fontSize: "clamp(5rem, 15vw, 18rem)", lineHeight: 1, fontWeight: 800, letterSpacing: "-0.04em" }}
+                >
+                  <CaseCode pair={pair} text={pairText} />
+                </div>
+              </motion.div>
+            </AnimatePresence>
+          </div>
+
+          <AnimatePresence initial={false}>
+            {settings.showNextCase !== false && !isModeSelectionPending && nextPair && (
+              <motion.div
+                key={nextPair.transitionId}
+                data-testid="next-letter-pair-display"
+                aria-label={`Next case: ${nextPairText}`}
+                className="font-mono"
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -6 }}
+                transition={{ duration: 0.07, ease: "easeOut" }}
+                style={{ position: "absolute", top: "calc(50% + clamp(2.3rem, 6.8vw, 8.5rem))", left: "50%", x: "-50%", fontSize: "clamp(1.35rem, 4vw, 3rem)", lineHeight: 1, fontWeight: 700, letterSpacing: "-0.025em", color: "#52525B", whiteSpace: "nowrap" }}
+              >
+                <CaseCode pair={nextPair} text={nextPairText} />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
 
         <RecognitionTimer caseStartRef={caseStartRef} caseStoppedRef={caseStoppedRef} pairKey={pairText} isPaused={isTimerPaused} />
 
@@ -2136,6 +2278,7 @@ function SettingsPanel({ settings, setSettings, resetStats, resetSchedule, onOpe
           </div>
         </div>
       </Field>
+      <Toggle label="Next case preview" testid="next-case-toggle" value={settings.showNextCase !== false} onChange={(v) => set("showNextCase", v)} />
       <Toggle label="Sound feedback" testid="sound-toggle" value={settings.sound} onChange={(v) => set("sound", v)} />
       <Toggle label="Manual move buttons" testid="manual-toggle" value={settings.showManual} onChange={(v) => set("showManual", v)} />
       <Field label="Case distribution">
@@ -2263,7 +2406,7 @@ function Toggle({ label, value, onChange, testid }) {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
       <span className="overline font-head" style={{ fontSize: 11, color: "#A1A1AA" }}>{label}</span>
-      <button data-testid={testid} onClick={() => onChange(!value)} style={{ width: 46, height: 26, borderRadius: 99, border: "1px solid var(--line)", background: value ? "var(--active)" : "var(--surface-2)", position: "relative", cursor: "pointer" }}>
+      <button data-testid={testid} aria-label={label} aria-pressed={value} onClick={() => onChange(!value)} style={{ width: 46, height: 26, borderRadius: 99, border: "1px solid var(--line)", background: value ? "var(--active)" : "var(--surface-2)", position: "relative", cursor: "pointer" }}>
         <span style={{ position: "absolute", top: 2, left: value ? 22 : 2, width: 20, height: 20, borderRadius: 99, background: "#fff", transition: "left 120ms ease" }} />
       </button>
     </div>
