@@ -1,5 +1,11 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { fetchCaseHints, loadCategoryCases } from "./blddb.js";
+import { afterEach, beforeEach, describe, expect, jest, test } from "bun:test";
+import { SCHEMES } from "./cube.mjs";
+import {
+  BLDDB_FETCH_TIMEOUT_MS,
+  fetchCaseHints,
+  fetchHints,
+  loadCategoryCases,
+} from "./blddb.js";
 
 const originalFetch = globalThis.fetch;
 const originalLocalStorage = globalThis.localStorage;
@@ -19,6 +25,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   globalThis.fetch = originalFetch;
   if (originalLocalStorage === undefined) delete globalThis.localStorage;
   else globalThis.localStorage = originalLocalStorage;
@@ -50,6 +57,7 @@ describe("BLDDB category loading", () => {
     expect(hints.notFound).toBeFalse();
     expect(hints.recommended).toBe("R U R'");
     expect(hints.list.map(({ alg }) => alg)).toEqual(["R U R'", "U R U'"]);
+    expect(JSON.parse(localStorage.getItem("blddb_cache_v2_flipsNightmare"))).toEqual(fixtures.flipsNightmare);
   });
 
   test("normalizes list-backed categories into flat case pools", async () => {
@@ -70,10 +78,62 @@ describe("BLDDB category loading", () => {
     expect(await loadCategoryCases("parity")).toEqual({ GAJA: "R2 U2" });
   });
 
+  test("serves algorithm hints from localStorage while offline", async () => {
+    globalThis.localStorage = memoryStorage({
+      blddb_cache_v2_edgeNightmareSelected: JSON.stringify({ AET: "R U R'" }),
+      blddb_cache_v2_edgeNightmare: JSON.stringify({ AET: ["R U R'", "U R U'"] }),
+    });
+    globalThis.fetch = async () => { throw new Error("offline"); };
+
+    const hints = await fetchHints({
+      type: "edge",
+      buffer: "c",
+      t1: "a",
+      t2: "f",
+      style: "nightmare",
+      maps: SCHEMES.speffz,
+    });
+
+    expect(hints.notFound).toBeFalse();
+    expect(hints.key).toBe("AET");
+    expect(hints.recommended).toBe("R U R'");
+    expect(hints.list.map(({ alg }) => alg)).toEqual(["R U R'", "U R U'"]);
+  });
+
+  test("falls back to cached cases after a five-second request timeout", async () => {
+    globalThis.localStorage = memoryStorage({
+      blddb_cache_v2_twistsNightmare: JSON.stringify({ JPR: ["R2 U2"] }),
+    });
+    let requestSignal;
+    globalThis.fetch = async (_url, { signal }) => {
+      requestSignal = signal;
+      return await new Promise((_, reject) => {
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    };
+    jest.useFakeTimers();
+
+    const casesPromise = loadCategoryCases("twists");
+    await Promise.resolve();
+    jest.advanceTimersByTime(BLDDB_FETCH_TIMEOUT_MS - 1);
+    expect(requestSignal.aborted).toBeFalse();
+
+    jest.advanceTimersByTime(1);
+    expect(await casesPromise).toEqual({ JPR: "R2 U2" });
+    expect(requestSignal.aborted).toBeTrue();
+  });
+
   test("preserves the network error when localStorage is unavailable", async () => {
     delete globalThis.localStorage;
     globalThis.fetch = async () => { throw new Error("offline"); };
 
-    await expect(loadCategoryCases("twists")).rejects.toThrow("offline");
+    await expect(fetchHints({
+      type: "corner",
+      buffer: "C",
+      t1: "A",
+      t2: "F",
+      style: "manmade",
+      maps: SCHEMES.speffz,
+    })).rejects.toThrow("offline");
   });
 });

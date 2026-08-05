@@ -7,22 +7,33 @@ import { commutator } from "./commutator.js";
 
 const BASE = "https://v2.blddb.net/data/";
 const CACHE_PREFIX = "blddb_cache_v2_";
+export const BLDDB_FETCH_TIMEOUT_MS = 3_000;
 const mem = {};
 
 async function loadFile(name) {
   if (mem[name]) return mem[name];
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), BLDDB_FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(`${BASE}${name}.json`, { cache: "no-cache" });
+    const res = await fetch(`${BASE}${name}.json`, {
+      cache: "no-cache",
+      signal: controller.signal,
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     mem[name] = data;
-    try { localStorage.setItem(CACHE_PREFIX + name, JSON.stringify(data)); } catch {}
+    try { localStorage.setItem(CACHE_PREFIX + name, JSON.stringify(data)); } catch { }
     return data;
   } catch (e) {
     let cached = null;
-    try { cached = localStorage.getItem(CACHE_PREFIX + name); } catch {}
-    if (cached) { const d = JSON.parse(cached); mem[name] = d; return d; }
+    try {
+      const stored = localStorage.getItem(CACHE_PREFIX + name);
+      if (stored) cached = JSON.parse(stored);
+    } catch { }
+    if (cached) { mem[name] = cached; return cached; }
     throw e;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -125,11 +136,11 @@ export async function fetchHints({ type, buffer, t1, t2, style, maps }) {
 // drill; hints reuse the nightmare/manmade files like corners/edges.
 // ============================================================================
 const CATEGORY_FILES = {
-  flips:  { selected: "flipsNightmareSelected", nightmare: "flipsNightmare", manmade: "flipsManmade" },
+  flips: { selected: "flipsNightmareSelected", nightmare: "flipsNightmare", manmade: "flipsManmade" },
   twists: { nightmare: "twistsNightmare", manmade: "twistsManmade" },
   parity: { selected: "parityNightmareSelected", nightmare: "parityNightmare", manmade: "parityManmade" },
-  ltct:   { nightmare: "ltctNightmare", manmade: "ltctManmade" },
-  t2c:    { nightmare: "ltctNightmare", manmade: "ltctManmade" },
+  ltct: { nightmare: "ltctNightmare", manmade: "ltctManmade" },
+  t2c: { nightmare: "ltctNightmare", manmade: "ltctManmade" },
 };
 
 export const CATEGORY_STYLE_OPTIONS = [
