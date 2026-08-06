@@ -950,8 +950,8 @@ export default function App() {
         <CubeNet state={netState} highlights={highlights} orientation={settings.orientation} />
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", alignItems: "center" }}>
-          <button data-testid="skip-btn" onClick={skipCase} style={ghostBtn}><SkipForward size={15} /> Skip (Backspace)</button>
-          <button data-testid="hint-btn" onClick={() => setHintOpen(true)} style={{ ...ghostBtn, borderColor: "var(--active)", color: "#fff" }}><Lightbulb size={15} /> Hint (H)</button>
+          <button data-testid="skip-btn" onClick={skipCase} style={ghostBtn}><SkipForward size={15} /> Skip</button>
+          <button data-testid="hint-btn" onClick={() => setHintOpen(true)} style={{ ...ghostBtn, color: "#fff" }}><Lightbulb size={15} /> Hint</button>
           <button data-testid="reset-cube-btn" onClick={resetCube} style={ghostBtn}><RotateCcw size={15} /> Cube Solved</button>
           <button
             data-testid="toggle-pause-btn"
@@ -970,10 +970,7 @@ export default function App() {
           >
             {isTimerPaused ? <Play size={15} /> : <Pause size={15} />}
           </button>
-        </div>
-
-        <div data-testid="trainer-help" className="overline" style={{ color: "#3f3f46", fontSize: 11, textAlign: "center", lineHeight: 1.7, letterSpacing: "0.06em" }}>
-          Tap screen / Space = validate · Double-tap / Esc = reset timer · Backspace = skip
+          <TutorialInfo />
         </div>
       </main>
 
@@ -1978,6 +1975,85 @@ function SourceInfo({ sources, testid }) {
                 <span key={i} className="font-mono" style={{ fontSize: 11, color: "#A1A1AA", wordBreak: "break-word" }}>{s.name}</span>
               )
             ))}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
+function TutorialInfo() {
+  const [open, setOpen] = useState(false);
+  const [pos, setPos] = useState(null);
+  const btnRef = useRef(null);
+  const popRef = useRef(null);
+
+  const place = useCallback(() => {
+    const el = btnRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const W = 240, H = 130, GAP = 6;
+    let left = r.right - W;
+    if (left < 8) left = 8;
+    if (left + W > window.innerWidth - 8) left = Math.max(8, window.innerWidth - 8 - W);
+    let top = r.bottom + GAP;
+    let above = false;
+    if (top + H > window.innerHeight - 8) {
+      top = r.top - GAP;
+      above = true;
+    }
+    setPos({ left, top, above });
+  }, []);
+
+  const toggle = (e) => { e.stopPropagation(); setOpen((v) => { const nv = !v; if (nv) place(); return nv; }); };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (btnRef.current && btnRef.current.contains(e.target)) return;
+      if (popRef.current && popRef.current.contains(e.target)) return;
+      setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } };
+    const onScroll = () => place();
+    document.addEventListener("mousedown", onDoc);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [open, place]);
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        data-testid="trainer-help"
+        onClick={toggle}
+        title="Controls"
+        aria-label="Show controls"
+        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 36, height: 36, padding: 0, flexShrink: 0, background: "transparent", border: "none", color: "#A1A1AA", cursor: "pointer" }}
+      >
+        <Info size={16} />
+      </button>
+      {open && pos && createPortal(
+        <div
+          ref={popRef}
+          data-testid="trainer-help-popover"
+          onClick={(e) => e.stopPropagation()}
+          style={{ position: "fixed", left: pos.left, top: pos.top, transform: pos.above ? "translateY(-100%)" : undefined, zIndex: 200, width: 240, background: "var(--surface-2)", border: "1px solid var(--line)", borderRadius: 10, padding: 10, boxShadow: "0 12px 32px rgba(0,0,0,0.55)" }}
+        >
+          <div className="overline font-head" style={{ fontSize: 9, color: "var(--active)", marginBottom: 6 }}>Controls</div>
+          <div className="font-mono" style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 11, color: "#A1A1AA", lineHeight: 1.45 }}>
+            <span>Tap screen / Space = validate</span>
+            <span>Double-tap / Esc = reset timer</span>
+            <span>Backspace = skip</span>
+            <span>H = hint</span>
           </div>
         </div>,
         document.body
