@@ -185,44 +185,42 @@ export default function App() {
 
   const startModeLongPress = useCallback((cat) => {
     suspendNextCasePreview();
-    if (!isMobile) return;
     const previous = modeLongPressRef.current;
     if (previous.timer) clearTimeout(previous.timer);
     const hold = { timer: null, cat, completed: false };
     hold.timer = setTimeout(() => {
       hold.timer = null;
       hold.completed = true;
-      selectOnlyMode(cat);
+      suspendNextCasePreview();
+      toggleMode(cat);
     }, MODE_LONG_PRESS_MS);
     modeLongPressRef.current = hold;
     setHoldingMode(cat);
-  }, [isMobile, selectOnlyMode, suspendNextCasePreview]);
+  }, [suspendNextCasePreview, toggleMode]);
 
   const finishModeLongPress = useCallback((cat) => {
-    if (!isMobile) return;
     const hold = modeLongPressRef.current;
     if (hold.cat !== cat) return;
     if (hold.timer) clearTimeout(hold.timer);
     hold.timer = null;
     setHoldingMode(null);
     if (!hold.completed) modeLongPressRef.current = { timer: null, cat: null, completed: false };
-  }, [isMobile]);
+  }, []);
 
   const cancelModeLongPress = useCallback((cat) => {
-    if (!isMobile) return;
     const hold = modeLongPressRef.current;
     if (hold.cat !== cat) return;
     if (hold.timer) clearTimeout(hold.timer);
     modeLongPressRef.current = { timer: null, cat: null, completed: false };
     setHoldingMode(null);
-  }, [isMobile]);
+  }, []);
 
   const suppressCompletedLongPressClick = useCallback((cat, event) => {
     const hold = modeLongPressRef.current;
-    if (!isMobile || hold.cat !== cat || !hold.completed) return;
+    if (hold.cat !== cat || !hold.completed) return;
     event.preventDefault();
     modeLongPressRef.current = { timer: null, cat: null, completed: false };
-  }, [isMobile]);
+  }, []);
 
   const getRandom = useCallback(() => {
     const s = settingsRef.current;
@@ -844,12 +842,6 @@ export default function App() {
                 onPointerLeave={() => cancelModeLongPress(c)}
                 onClick={(e) => suppressCompletedLongPressClick(c, e)}
                 onContextMenu={(e) => { if (isMobile) e.preventDefault(); }}
-                onDoubleClick={(e) => {
-                  if (isMobile) return;
-                  e.preventDefault();
-                  suspendNextCasePreview();
-                  selectOnlyMode(c);
-                }}
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -872,7 +864,7 @@ export default function App() {
                 <input
                   type="checkbox"
                   checked={checked}
-                  onChange={() => toggleMode(c)}
+                  onChange={() => selectOnlyMode(c)}
                   style={{ position: "absolute", opacity: 0, width: 0, height: 0, pointerEvents: "none" }}
                 />
                 <span className="mode-pill-label">
@@ -880,7 +872,7 @@ export default function App() {
                 </span>
                 {!isMobile && modeHint === c && (
                   <span role="tooltip" className="mode-pill-tooltip">
-                    Double-click to select only this mode
+                    Hold to add/remove this mode
                   </span>
                 )}
               </label>
