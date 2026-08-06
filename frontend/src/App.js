@@ -2310,7 +2310,8 @@ function HintModal({ pair, pairText, buffer, maps, style, setStyle, onClose }) {
             )}
             {!loading && !error && data && data.notFound && (
               <div data-testid="hint-notfound" className="font-mono" style={{ color: "#A1A1AA", fontSize: 13, lineHeight: 1.6 }}>
-                No algorithm found in v2.blddb.net for this case{data.key ? ` (${data.key})` : ""}. It may be a same-piece or unsupported case.
+                No algorithm found in v2.blddb.net for this case ({pairText})
+                {data.key && data.key !== pairText ? `; BLDDB code ${data.key}` : ""}. It may be a same-piece or unsupported case.
               </div>
             )}
             {!loading && !error && data && !data.notFound && (

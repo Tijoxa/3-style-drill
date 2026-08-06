@@ -2,16 +2,20 @@
 // v2 stores flat dictionaries keyed by the 3-letter case code (buffer+t1+t2),
 // e.g. { "ADM": "U' R' D R U' R' D' R U2" }. We fetch fresh per session and keep
 // a localStorage fallback for offline use.
-import { blddbCode } from "./cube.mjs";
+import { blddbCode, caseKeyToPositions } from "./cube.mjs";
 import { commutator } from "./commutator.js";
 
 const BASE = "https://v2.blddb.net/data/";
 const CACHE_PREFIX = "blddb_cache_v2_";
 export const BLDDB_FETCH_TIMEOUT_MS = 3_000;
-const mem = {};
+const mem = new Map();
 
-async function loadFile(name) {
-  if (mem[name]) return mem[name];
+const scopedKey = (scope, name) => `${scope}:${name}`;
+const storageKey = (scope, name) => `${CACHE_PREFIX}${scopedKey(scope, name)}`;
+
+async function loadFile(name, scope) {
+  const key = scopedKey(scope, name);
+  if (mem.has(key)) return mem.get(key);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), BLDDB_FETCH_TIMEOUT_MS);
   try {
@@ -21,16 +25,16 @@ async function loadFile(name) {
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
-    mem[name] = data;
-    try { localStorage.setItem(CACHE_PREFIX + name, JSON.stringify(data)); } catch { }
+    mem.set(key, data);
+    try { localStorage.setItem(storageKey(scope, name), JSON.stringify(data)); } catch { }
     return data;
   } catch (e) {
     let cached = null;
     try {
-      const stored = localStorage.getItem(CACHE_PREFIX + name);
+      const stored = localStorage.getItem(storageKey(scope, name));
       if (stored) cached = JSON.parse(stored);
     } catch { }
-    if (cached) { mem[name] = cached; return cached; }
+    if (cached) { mem.set(key, cached); return cached; }
     throw e;
   } finally {
     clearTimeout(timeout);
@@ -78,6 +82,26 @@ function resolveSources(names, type, srcUrls) {
   }));
 }
 
+// Flip datasets use two different sticker-code conventions. Nightmare keys identify
+// the displayed stickers (e.g. JT for Speffz KF), while Manmade may identify the same
+// physical edge pieces with different stickers (e.g. SI). Match flips by cubie identity.
+function flipCaseIdentity(codeKey) {
+  const positions = caseKeyToPositions(codeKey, "flips");
+  if (positions.length !== 2 || positions.some((position) => typeof position !== "string" || position.length !== 2)) return null;
+  return positions
+    .map((position) => [...position].sort().join(""))
+    .sort()
+    .join(":");
+}
+
+function categoryEntryKey(map, key, category) {
+  if (Object.prototype.hasOwnProperty.call(map, key)) return key;
+  if (category !== "flips") return null;
+  const identity = flipCaseIdentity(key);
+  if (!identity) return null;
+  return Object.keys(map).find((candidate) => flipCaseIdentity(candidate) === identity) || null;
+}
+
 // Returns { notFound, key, style, recommended, recCommutator, recSources, list }
 // where list = [{ alg, commutator, sources? }]. Commutator is prioritized: for
 // manmade it comes from the database, for nightmare it is derived from the alg.
@@ -87,15 +111,16 @@ export async function fetchHints({ type, buffer, t1, t2, style, maps }) {
   const c2 = blddbCode(t2, type, maps);
   const styles = STYLE_FILES[type] || STYLE_FILES.corner;
   const cfg = styles[style] || styles.nightmare;
+  const scope = `pair:${type}`;
   if (!bc || !c1 || !c2) return { notFound: true, key: null, style };
 
   const key = `${bc}${c1}${c2}`;
 
   if (cfg.manmade) {
-    const map = await loadFile(cfg.manmade);
+    const map = await loadFile(cfg.manmade, scope);
     const entry = map[key];
     if (!entry || !entry.length) return { notFound: true, key, style };
-    const srcUrls = await loadFile("sourceToUrl").catch(() => ({}));
+    const srcUrls = await loadFile("sourceToUrl", scope).catch(() => ({}));
     const list = entry.map((e) => {
       const algs = e[0] || [];
       const sources = resolveSources(e[1], type, srcUrls);
@@ -114,10 +139,10 @@ export async function fetchHints({ type, buffer, t1, t2, style, maps }) {
   }
 
   // nightmare
-  const recMap = await loadFile(cfg.rec);
+  const recMap = await loadFile(cfg.rec, scope);
   const recommended = recMap[key];
   if (!recommended) return { notFound: true, key, style };
-  const listMap = await loadFile(cfg.list).catch(() => ({}));
+  const listMap = await loadFile(cfg.list, scope).catch(() => ({}));
   const algs = (listMap[key] && listMap[key].length) ? listMap[key] : [recommended];
   const list = algs.map((a) => ({ alg: a, commutator: comm(a) }));
   return {
@@ -153,8 +178,9 @@ export const CATEGORY_STYLE_OPTIONS = [
 export async function loadCategoryCases(category) {
   const cfg = CATEGORY_FILES[category];
   if (!cfg) return {};
-  if (cfg.selected) return await loadFile(cfg.selected); // flat { key: alg }
-  const map = await loadFile(cfg.nightmare);             // { key: [algs] }
+  const scope = `category:${category}`;
+  if (cfg.selected) return await loadFile(cfg.selected, scope); // flat { key: alg }
+  const map = await loadFile(cfg.nightmare, scope);             // { key: [algs] }
   const out = {};
   for (const k in map) { const v = map[k]; out[k] = Array.isArray(v) ? v[0] : v; }
   return out;
@@ -164,12 +190,14 @@ export async function loadCategoryCases(category) {
 export async function fetchCaseHints({ category, key, style }) {
   const cfg = CATEGORY_FILES[category];
   if (!cfg || !key) return { notFound: true, key, style };
+  const scope = `category:${category}`;
 
   if (style === "manmade" && cfg.manmade) {
-    const map = await loadFile(cfg.manmade);
-    const entry = map[key];
+    const map = await loadFile(cfg.manmade, scope);
+    const entryKey = categoryEntryKey(map, key, category);
+    const entry = entryKey ? map[entryKey] : null;
     if (!entry || !entry.length) return { notFound: true, key, style };
-    const srcUrls = await loadFile("sourceToUrl").catch(() => ({}));
+    const srcUrls = await loadFile("sourceToUrl", scope).catch(() => ({}));
     const list = entry.map((e) => {
       const algs = e[0] || [];
       const sources = resolveSources(e[1], category, srcUrls);
@@ -186,10 +214,11 @@ export async function fetchCaseHints({ category, key, style }) {
   }
 
   // nightmare
-  const recMap = cfg.selected ? await loadFile(cfg.selected).catch(() => ({})) : null;
-  const listMap = await loadFile(cfg.nightmare).catch(() => ({}));
+  const recMap = cfg.selected ? await loadFile(cfg.selected, scope).catch(() => ({})) : null;
+  const listMap = await loadFile(cfg.nightmare, scope).catch(() => ({}));
   let recommended = recMap ? recMap[key] : null;
-  const raw = listMap[key];
+  const listKey = categoryEntryKey(listMap, key, category);
+  const raw = listKey ? listMap[listKey] : null;
   const algs = Array.isArray(raw) ? raw : (raw ? [raw] : []);
   if (!recommended) recommended = algs[0] || null;
   if (!recommended) return { notFound: true, key, style };
