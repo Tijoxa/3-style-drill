@@ -21,7 +21,7 @@ The whole app lives in the [`frontend/`](./frontend) folder and is powered by **
 ```bash
 cd frontend
 bun install     # install dependencies
-bun dev         # start Vite dev server with fast HMR → http://localhost:3000
+bun dev         # start Vite dev server with fast HMR → http://localhost:5173
 ```
 
 ### Other commands
