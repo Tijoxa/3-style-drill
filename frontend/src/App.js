@@ -118,6 +118,7 @@ export default function App() {
   const streakRef = useRef(0);
   const successRef = useRef(0);
   const targetRef = useRef(null);
+  const caseTargetRef = useRef(null);
   const caseStartRef = useRef(null);
   const caseStartedRef = useRef(false);
   const caseStoppedRef = useRef(null);
@@ -287,7 +288,7 @@ export default function App() {
     if (NEW_CATEGORIES.includes(m)) {
       const recMap = categoryCacheRef.current[m];
       const catMaps = getMaps(s.scheme);
-      const clearCase = () => { targetRef.current = null; caseStartRef.current = null; caseStartedRef.current = false; caseStoppedRef.current = null; setPair(null); setHighlights({}); };
+      const clearCase = () => { targetRef.current = null; caseTargetRef.current = null; caseStartRef.current = null; caseStartedRef.current = false; caseStoppedRef.current = null; setPair(null); setHighlights({}); };
       if (!recMap) { previewOnly ? clearPreview() : clearCase(); return; }
       let keys = Object.keys(recMap);
       const disabled = s.disabledCases || {};
@@ -344,6 +345,7 @@ export default function App() {
             return;
           }
           targetRef.current = target;
+          caseTargetRef.current = (state) => applyAlg(state, alg);
           currentCaseKeyRef.current = `${s.scheme}:${m}:${kkey}`;
           currentTypeRef.current = m;
           caseStoppedRef.current = null;
@@ -397,6 +399,7 @@ export default function App() {
     if (validPairs.length === 0) {
       if (previewOnly) { clearPreview(); return; }
       targetRef.current = null;
+      caseTargetRef.current = null;
       caseStartRef.current = null;
       caseStartedRef.current = false;
       caseStoppedRef.current = null;
@@ -431,6 +434,7 @@ export default function App() {
           return;
         }
         targetRef.current = target;
+        caseTargetRef.current = (state) => apply3Cycle(state, [buffer, t1, t2], type, maps);
         currentCaseKeyRef.current = caseKey(s.scheme, type, t1, t2);
         currentTypeRef.current = type;
         caseStoppedRef.current = null;
@@ -586,6 +590,13 @@ export default function App() {
     if (settingsRef.current.sound) beep(300, false);
   }, []);
 
+  const resetCase = useCallback(() => {
+    if (!caseTargetRef.current) return;
+    targetRef.current = caseTargetRef.current(cubeStateRef.current);
+    resetAndStop();
+    toast.success("Case reset — retry from here");
+  }, [resetAndStop]);
+
   // Space / single screen tap: validate the current time (record + next case), or (re)start the timer if stopped.
   const validate = useCallback(() => {
     if (busyRef.current || !targetRef.current) return;
@@ -656,10 +667,11 @@ export default function App() {
       solveCurrent: () => { if (targetRef.current) onStateChanged(targetRef.current); },
       openMacPrompt: () => new Promise((resolve) => setMacPrompt({ deviceName: "GAN-TEST", resolve })),
       feedFacelets: (f) => handleFacelets(f),
+      resetCase: () => resetCase(),
       markSolved: () => resetCube(),
     };
     window.__cube = { SOLVED, applyMove, applyAlg, scramble };
-  }, [onStateChanged, handleFacelets, resetCube, togglePauseTimer]);
+  }, [onStateChanged, handleFacelets, resetCase, resetCube, togglePauseTimer]);
 
   // keyboard controls
   useEffect(() => {
@@ -952,6 +964,7 @@ export default function App() {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center", alignItems: "center" }}>
           <button data-testid="skip-btn" onClick={skipCase} style={ghostBtn}><SkipForward size={15} /> Skip</button>
           <button data-testid="hint-btn" onClick={() => setHintOpen(true)} style={{ ...ghostBtn, color: "#fff" }}><Lightbulb size={15} /> Hint</button>
+          <button data-testid="reset-case-btn" onClick={resetCase} title="Retry this algorithm from the cube's current state" style={ghostBtn}><RotateCcw size={15} /> Reset Case</button>
           <button data-testid="reset-cube-btn" onClick={resetCube} style={ghostBtn}><RotateCcw size={15} /> Cube Solved</button>
           <button
             data-testid="toggle-pause-btn"
